@@ -1,0 +1,397 @@
+---
+title: "DATA624-HW1-TimeSeries"
+author: "Michael Y."
+date: "2/09/2020"
+subtitle: "FPP-Hyndman exercises 2.1, 2.2, 2.3, 2.6"
+output:
+  pdf_document:
+    md_extensions: +grid_tables
+    toc: yes
+    toc_depth: 3
+    keep_md: yes
+    keep_tex: yes
+  html_document:
+    highlight: pygments
+    theme: cerulean
+    code_folding: show
+    toc: yes
+    toc_float: yes
+    toc_depth: 3
+    keep_md: yes
+    md_extensions: +grid_tables
+classoption: portrait
+urlcolor: blue
+linkcolor: blue
+editor_options:
+  chunk_output_type: inline
+header-includes: 
+- \usepackage{graphicx}
+- \usepackage{float}
+---
+
+<style>
+  .main-container {
+    max-width: 1200px !important;
+  }
+</style>
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+mydir <- "C:/Users/Michael/Dropbox/priv/CUNY/MSDS/202002-Spring/DATA624_Jeff/624_20200209_HW1_TimeSeries"
+setwd(mydir)
+
+```
+
+\newpage
+```{r libraries}
+library(fpp2)
+```
+
+\newpage
+# Homework 1 - Time Series
+Please submit exercises 2.1, 2.2, 2.3 and 2.6 from the Hyndman online Forecasting book.    
+Please submit both your Rpubs link as well as attach the .rmd file with your code.
+
+\newpage
+## 2.1 Use the help function to explore what the series `gold`, `woolyrnq` and `gas` represent.
+
+```{r fpp-2.1}
+### Gold
+help(gold)
+gold.title <- "Daily morning gold prices in US dollars. 1 January 1985 – 31 March 1989."
+
+### Woolyrnq
+help(woolyrnq)
+woolyrnq.title <- "Quarterly production of woollen yarn in Australia: tonnes. Mar 1965 – Sep 1994."
+
+### Gas
+help(gas)
+gas.title <- "Australian monthly gas production: 1956–1995."
+```
+
+##### The `gold` series represents `r gold.title`
+
+##### The `woolyrnq` series represents `r woolyrnq.title`
+
+##### The `gas` series represents `r gas.title`
+
+\newpage
+### a. Use `autoplot()` to plot each of these in separate plots.
+
+```{r fpp-2.1a1}
+autoplot(gold) + ggtitle(gold.title) + geom_line(color="red")
+```
+
+\newpage
+```{r fpp-2.1a2}
+autoplot(woolyrnq) + ggtitle(woolyrnq.title) + geom_line(color="blue")
+```
+
+\newpage
+```{r fpp-2.1a3}
+autoplot(gas) + ggtitle(gas.title) + geom_line(color="darkgreen")
+```
+
+\newpage
+### b. What is the frequency of each series? Hint: apply the frequency() function.
+
+```{r fpp2.1b}
+## Frequency - gold
+(gold.freq <- frequency(gold))
+
+
+## Frequency - woolyrnq
+(woolyrnq.freq <- frequency(woolyrnq))
+
+## Frequency - gas
+(gas.freq <- frequency(gas))
+```
+
+#### The series for `gold` is stored with frequency = `r gold.freq`, which suggests "Annual", but the frequency is actually daily(Weekday), i.e, 5 days per week, or 260 observations per year.
+
+#### The frequency for `woolyrnq` is `r woolyrnq.freq`, which corresponds to Quarterly.
+
+#### The frequency for `gas` is `r gas.freq`, which corresponds to Monthly.
+
+
+### c. Use which.max() to spot the outlier in the gold series. Which observation was it?
+
+```{r fpp2.1c}
+(gold.max.obs <- which.max(gold))
+(gold.max.val <- gold[gold.max.obs])
+```
+
+#### The outlier is observation number `r gold.max.obs`, for which the associated price is `r gold.max.val` .
+#### The data includes `NA` values for holidays such as New Years Day, Good Friday, Easter Monday, Christmas, Boxing Day, and the Bank Holiday which occur on Mondays at the beginning and end of May, and at the end of August.    
+#### The problem with using "ts" as the data structure for weekday-only data is that Saturdays and Sundays have been omitted, but `ts` requires data to be equally spaced.    
+#### There are 1108 items in the `gold` data set, of which 34 are `NA` .    
+#### This corresponds to the number of weekdays from 1/2/1985 through 3/31/1989, inclusive.  (January 1, 1985 has been omitted from the dataset, otherwise the first observatious would be `NA` .)   
+
+#### We can create a sequence of dates which correspond to the observations, and make a plot which better labels the dates:
+
+```{r fpp2.1cx1}
+gold.days     <- seq( as.Date("1985/1/2", format="%Y/%m/%d"), 
+                      as.Date("1989/3/31", format="%Y/%m/%d"),"days")
+gold.weekdays <- gold.days[ ! weekdays(gold.days) %in% c("Saturday", "Sunday") ]
+plot(x=gold.weekdays,y=gold,type="l",col="darkgreen",
+     xlab="Date(weekdays only)",main=gold.title)
+```
+
+#### We can get a similar graph by putting the data into a `ts` object while specifying 260 observations per year:
+```{r fpp2.1cx2}
+gold.ts260 <- ts(gold,start=c(1985,2),frequency = 260)
+autoplot(gold.ts260) + ggtitle(gold.title) + geom_line(color="blue")
+```
+
+##### Of course, doing this properly (with `ts`) would require expanding the dataset to include `NA` values for every Saturday and Sunday during the above time period, and would require 1551 rather than 1108 "observations".
+
+
+#### We can put the dates and prices into a data frame, and we can observe the date associated with the outlier:
+
+```{r fpp2.1cx3}
+gold.df       <- data.frame(gold.weekdays,gold)
+gold.df[gold.max.obs,]
+```
+
+
+***
+\newpage
+## 2.2. Download the file `tute1.csv` from the book website, open it in Excel (or some other spreadsheet application), and review its contents. You should find four columns of information. 
+
+### Columns *B* through *D* each contain a quarterly series, labelled `Sales`, `AdBudget` and `GDP`. 
+
+* `Sales` contains the quarterly sales for a small company over the period 1981-2005. 
+* `AdBudget` is the advertising budget and 
+* `GDP` is the gross domestic product. 
+
+All series have been adjusted for inflation.
+
+### a. You can read the data into R with the following script:
+
+```{r fpp-2.2a}
+
+tute1 <- read.csv("tute1.csv", header=TRUE)
+View(tute1)
+
+## we can load from web, below
+##tute11 <- readr::read_csv("https://otexts.com/fpp3/extrafiles/tute1.csv")
+##View(tute11)
+```
+
+### b. Convert the data to time series
+
+```{r fpp2.2b}
+mytimeseries <- ts(tute1[,-1], start=1981, frequency=4)
+```
+
+(The [,-1] removes the first column which contains the quarters as we don’t need them now.)
+
+### c. Construct time series plots of each of the three series
+
+```{r fpp2.2c}
+autoplot(mytimeseries, facets=TRUE) + geom_line(color=c("blue"))
+```
+
+#### Check what happens when you don’t include `facets=TRUE`.
+
+
+```{r fpp2.2c2}
+autoplot(mytimeseries, facets=F)
+```
+
+If omitting "facets=TRUE", then all three series are plotted on the same axes.  In this case because the values of the data do not intersect each other, the results can still be clearly observed.  However, for other data sets with data of very different magnitudes, the result could be a graph which may not allow for easy viewing of the smallest data set.
+
+
+***
+\newpage
+## 2.3. Download some monthly Australian retail data from the book website. These represent retail sales in various categories for different Australian states, and are stored in a MS-Excel file.
+
+### a. You can read the data into R with the following script:
+
+```{r fpp2.3a}
+#### readxl does not read straight from URL without local download
+####retaildata <- readxl::read_excel("https://otexts.com/fpp2/extrafiles/retail.xlsx", skip=1)
+retaildata <- readxl::read_excel("retail.xlsx", skip=1)
+View(retaildata)
+
+```
+
+The second argument (`skip=1`) is required because the Excel sheet has two header rows.
+
+### b. Select one of the time series as follows (but replace the column name with your own chosen column):
+
+#### The rightmost column: A3349396W: "Turnover;Total(State);Total(Industry)"
+```{r fpp2.3b}
+mycode <- "A3349396W"
+mytitle <-  "Monthly Turnover;Total(State);Total(Industry)"
+mymain <- paste(mycode,mytitle)
+myts <- ts(retaildata[,"A3349396W"],
+  frequency=12, start=c(1982,4))
+```
+
+### c. Explore your chosen retail time series using the following functions:
+`autoplot()`, `ggseasonplot()`, `ggsubseriesplot()`, `gglagplot()`, `ggAcf()`
+
+#### Autoplot
+```{r fpp2.3c1}
+autoplot(object=myts)+ 
+  geom_line(color=c("blue"))+
+  ylab("A$ million") +
+  ggtitle(mymain)
+```
+
+##### The above plot shows very strong annual seasonality in addition to an upward YOY (Year-over-year) trend.
+
+#### ggseasonplot
+```{r fpp2.3c2}
+ggseasonplot(x=myts, year.labels=TRUE, year.labels.left=TRUE) +
+  ylab("A$ million") +
+  ggtitle(mymain)
+
+ggseasonplot(x=myts, polar=TRUE) +
+  ylab("A$ million") +
+  ggtitle(paste("Polar season plot: ",mycode))
+```
+
+##### The season plot shows a sharp increase each December -- likely due to added holiday-season sales.  
+##### Additionally, the trend indicates is a consistent year-over-year increase
+
+#### ggsubseriesplot
+```{r fpp2.3c3}
+ggsubseriesmain <- paste(mycode, ": " , "Monthly from 1981 to 2005")
+ggsubseriesplot(x=myts) + 
+  ggtitle(ggsubseriesmain)
+```
+
+##### The month-by-month graphs indicate a significant year-over-year trend.
+
+##### Additionally, the sharp jump in December reflects seasonality, likely driven by holiday sales.
+
+#### gglagplot
+```{r fpp2.3c4}
+gglagmain <- paste(mycode, ": ", "monthly lags")
+gglagplot(x=myts,set.lags = 0:24)+
+  ylab("A$ million") +
+  ggtitle(gglagmain)
+```
+
+##### The diagonal alignment on the lag12 and lag24 graphs confirm a sharp annual seasonality.
+
+
+#### ggAcf
+```{r fpp2.3c5}
+ggAcf(x=myts)+ggtitle(paste('Autocorrelation function: ', mycode))
+```
+
+##### The extremely high autocorrelation across lags indicate a strong trend where the sales in one month are, generally, closely correlated to those in the preceding month.  The upward spikes in lags 12 and 24 reflect the seasonality, where each month's sales are more highly correlated to the sales of the same month rather than to the months (other than the mose recent 1 or 2 months.)
+
+
+#### Can you spot any seasonality, cyclicity and trend? What do you learn about the series?
+
+##### The series exhibits a strong upward trend and annual seasonality.  No cyclicality is detected.
+
+***
+\newpage
+## 2.6 Use the following graphics functions: `autoplot()`, `ggseasonplot()`, `ggsubseriesplot()`, `gglagplot()`, `ggAcf()`   
+#### and explore features from the following time series:   `hsales`, `usdeaths`, `bricksq`, `sunspotarea`, `gasoline`.
+#### Can you spot any seasonality, cyclicity and trend?
+#### What do you learn about the series?
+
+### 2.6a: `hsales` - Monthly sales of new one-family houses sold in the USA since 1973.
+```{r fpp2.6a}
+mytitle <- "hsales: monthly sales of new houses (1973-1995)"
+autoplot(hsales) + ggtitle(mytitle)
+ggseasonplot(hsales) + ggtitle(mytitle)
+ggsubseriesplot(hsales) + ggtitle(mytitle)
+gglagplot(hsales,set.lags = 0:24) + ggtitle(mytitle)
+ggAcf(hsales, lag.max = 275) + ggtitle(mytitle)
+```
+
+##### The plots exhibit seasonality, with highest sales in the Spring of each year (March, April, May.)
+
+##### Cyclicality is also evident, with a cycle of about 8 years.
+
+##### The plots do not show any long-term trend.
+
+
+
+\newpage
+### 2.6b: `usdeaths` - Monthly accidental deaths in USA (1973-1978).
+```{r fpp2.6b}
+mytitle <- "usdeaths: Monthly accidental deaths in USA (1973-1978)"
+autoplot(usdeaths) + ggtitle(mytitle)
+ggseasonplot(usdeaths, year.labels=TRUE, year.labels.left=TRUE) + ggtitle(mytitle)
+ggsubseriesplot(usdeaths) + ggtitle(mytitle)
+gglagplot(usdeaths,set.lags = 0:24) + ggtitle(mytitle)
+ggAcf(usdeaths, lag.max = 72) + ggtitle(mytitle)
+```
+
+
+#### The data exhibits seasonality, with more accidental deaths occurring in the summertime (e.g., July) and fewer occuring in the winter (e.g., February.)    
+
+#### The data does not exhibit any long-term trend nor does it display cyclicality.
+
+
+\newpage
+### 2.6c: `bricksq`  - Australian quarterly clay brick production: 1956–1994.
+```{r fpp2.6c}
+mytitle <- "bricksq: Australian quarterly clay brick production: 1956–1994"
+autoplot(bricksq) + ggtitle(mytitle)
+ggseasonplot(bricksq, year.labels=TRUE, year.labels.left=TRUE) + ggtitle(mytitle)
+ggsubseriesplot(bricksq) + ggtitle(mytitle)
+gglagplot(bricksq,set.lags = 0:24) + ggtitle(mytitle)
+ggAcf(bricksq, lag.max = 155) + ggtitle(mytitle)
+```
+
+##### Seasonality is evident with **higher** production of bricks in Q3, which includes the Australian **winter** months (July-August-September) and lower production in Q1, which includes the Australian **summer**, perhaps because of vacation holidays.
+
+##### The data exhibits a clear upward trend from 1956-1974, after which time there is a clear "regime shift", when the data becomes cyclical instead of trending upwards, with dips in 1975, 1983, and 1991 indicating an eight-year cycle following such change.
+
+
+\newpage
+### 2.6d: `sunspotarea`  - Annual average sunspot area (1875-2015).
+```{r fpp2.6d}
+mytitle <- "sunspotarea: Annual average sunspot area (1875-2015)"
+autoplot(sunspotarea) + ggtitle(mytitle)
+
+##ggseasonplot(sunspotarea, year.labels=TRUE, year.labels.left=TRUE) + ggtitle(mytitle)
+## Error in ggseasonplot(sunspotarea, year.labels = TRUE, year.labels.left = TRUE) : 
+##  Data are not seasonal
+
+##ggsubseriesplot(sunspotarea) + ggtitle(mytitle)
+## Error in ggsubseriesplot(sunspotarea) : Data are not seasonal
+
+gglagplot(sunspotarea,set.lags = 0:24) + ggtitle(mytitle)
+ggAcf(sunspotarea, lag.max = 141) + ggtitle(mytitle)
+```
+
+##### Because the data is annual, it cannot exhibit seasonality, thus the `ggseasonplot` and `ggsubseriesplot` functions return errors.
+##### The data is cyclical, with the sunspot cycle running about 11 years in duration.
+
+
+
+
+\newpage
+### 2.6e: `gasoline`  - US finished motor gasoline product supplied: 2/2/1991-1/20/2017 (weekly).
+```{r fpp2.6e}
+mytitle <- "gasoline: US finished motor gasoline product supplied: 2/2/1991-1/20/2017 (weekly)"
+autoplot(gasoline) + ggtitle(mytitle)
+ggseasonplot(gasoline, year.labels=TRUE, year.labels.left=TRUE) + ggtitle(mytitle)
+## ggsubseriesplot(gasoline) + ggtitle(mytitle)
+## Error in ggsubseriesplot(gasoline) : Each season requires at least 2 observations. 
+## This may be caused from specifying a time-series with non-integer frequency.
+
+gglagplot(gasoline) + ggtitle(mytitle)
+ggAcf(gasoline, lag.max = 260) + ggtitle(mytitle)
+```
+
+##### The data exhibits an upward trend from 1991 up until 2007, when such increase stops.
+
+##### Because of the way the weekly data is stored in the `ts` object, it appears that the software is unable to map the $n^{th}$ week of each calendar year, as it easily does with monthly or quarterly data.  
+
+##### The attribute associated with the `ts` object indicates that the frequency is `r attributes(gasoline)$tsp[3]` .  If adjustments were made, it might be possible to have the software treat the frequency as 52 rather than `r attributes(gasoline)$tsp[3]` .
+
+##### However, "scallops" in the ACF plot indicate seasonality on a 52-week cycle.
+
