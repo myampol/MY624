@@ -1,0 +1,267 @@
+---
+title: "DATA624-HW3-Decomposition"
+author: "Michael Y."
+date: "2/23/2020"
+subtitle: "FPP-Hyndman exercises 6.2, 6.3"
+output:
+  pdf_document:
+    md_extensions: +grid_tables
+    toc: yes
+    toc_depth: 3
+    keep_md: yes
+    keep_tex: yes
+  html_document:
+    highlight: pygments
+    theme: cerulean
+    code_folding: show
+    toc: yes
+    toc_float: yes
+    toc_depth: 3
+    keep_md: yes
+    md_extensions: +grid_tables
+classoption: landscape
+urlcolor: blue
+linkcolor: blue
+editor_options:
+  chunk_output_type: inline
+header-includes: 
+- \usepackage{graphicx}
+- \usepackage{float}
+---
+
+<style>
+  .main-container {
+    max-width: 1200px !important;
+  }
+</style>
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+mydir <- "C:/Users/Michael/Dropbox/priv/CUNY/MSDS/202002-Spring/DATA624_Jeff/624_20200223_HW3_Decomposition"
+setwd(mydir)
+knitr::opts_knit$set(root.dir = mydir)
+```
+
+\newpage
+```{r libraries}
+library(fpp2)
+```
+
+\newpage
+# Homework 3 - Decomposition
+Do exercises 6.2, 6.3 from the online Hyndman book.
+Please submit both your Rpubs link as well as attach the .rmd file with your code.
+
+
+
+***
+## 6.2 The `plastics` data set consists of the monthly sales (in thousands) of product A for a plastics manufacturer for five years.
+
+### a) Plot the time series of sales of product A. Can you identify seasonal fluctuations and/or a trend-cycle?
+
+```{r fpp-6.2a, fig.width=10, fig.height=7}
+# autoplot
+autoplot(plastics)+geom_line(color="blue")+ggtitle("Plastics: Monthly sales of 'product A' for a plastics manufacturer.")
+# seasonplot
+ggseasonplot(plastics, col=rainbow(5), year.labels=TRUE)
+# plot(stl)
+plot(stl(plastics,"periodic"), main="Plastics: STL decomposition (Loess)")
+```
+
+\newpage
+### b) Use a classical multiplicative decomposition to calculate the trend-cycle and seasonal indices.
+
+```{r fpp-6.2b, fig.width=10, fig.height=7}
+decompose_plastics <- decompose(plastics, type = "multiplicative")
+
+# Seasonal
+decompose_plastics$seasonal
+plot(decompose_plastics$seasonal, main="Plastics: Seasonal", col="blue")
+
+# Trend
+decompose_plastics$trend
+plot(decompose_plastics$trend, main="Plastics: Trend-Cycle",col="red")
+
+# autoplot
+autoplot(decompose_plastics) + ggtitle("Plastics: decomposition of multiplicative time series")
+
+```
+
+### c) Do the results support the graphical interpretation from part a?
+
+Yes, the results do support the graphical interpretation.
+
+```{r fpp-6.2c}
+ 
+```
+
+\newpage
+### d) Compute and plot the seasonally adjusted data.
+
+```{r fpp-6.2d, fig.width=10, fig.height=7, warning=F}
+plastics_seasadj_1 <- seasadj(decompose_plastics)
+plastics_seasadj_1
+plot(plastics_seasadj_1, main="Plastics: Seasonally Adjusted")
+
+autoplot(plastics, series="Data") +
+  autolayer(trendcycle(decompose_plastics), series="Trend") +
+  autolayer(seasadj(decompose_plastics), series="Seasonally Adjusted") +
+  xlab("Year") + ylab("Monthly sales") +
+  ggtitle("Plastics: Raw data, trend, and seasonally adjusted") +
+  scale_colour_manual(values=c("gray","blue","red"),
+             breaks=c("Data","Seasonally Adjusted","Trend"))
+
+```
+
+\newpage
+### e) Change one observation to be an outlier (e.g., add 500 to one observation), and recompute the seasonally adjusted data. 
+
+```{r fpp-6.2e, fig.width=10, fig.height=7, warning=F}
+plastics2 <- plastics
+## changing June of year 3
+plastics2[30] <- plastics2[30]+500
+plastics2
+plot(plastics2, main="Plastics, with outlier at month 30")
+
+## decompose the perturbed series plastics2
+decompose_plastics_2 <- decompose(plastics2, type = "multiplicative")
+# autoplot
+autoplot(decompose_plastics_2) + 
+  ggtitle("Plastics: decomposition of multiplicative time series with outlier")
+
+plastics_seasadj_2 <- seasadj(decompose_plastics_2)
+plastics_seasadj_2
+plot(plastics_seasadj_2, 
+     main="Plastics, Seasonal Adjustment, outlier at month 30",
+     col="darkgreen")
+
+autoplot(plastics2, series="Data") +
+  autolayer(trendcycle(decompose_plastics_2), series="Trend") +
+  autolayer(seasadj(decompose_plastics_2), series="Seasonally Adjusted") +
+  xlab("Year") + ylab("Monthly sales") +
+  ggtitle("Plastics: with perturbation at month 30") +
+  scale_colour_manual(values=c("gray","blue","red"),
+             breaks=c("Data","Seasonally Adjusted","Trend"))
+
+## impact on trendcycle
+plot(trendcycle(decompose_plastics_2)-trendcycle(decompose_plastics),
+     ylab="change in trend", main="impact on trendcycle", col="blue")
+
+## impact on seasonal
+plot(seasonal(decompose_plastics_2)-seasonal(decompose_plastics),
+     ylab="change in seasonal", main="impact on seasonal", col="red")
+
+## impact on seasonally adjusted
+plot(seasadj(decompose_plastics_2)-seasadj(decompose_plastics),
+     ylab="change in seasonallly adjusted", 
+     main="impact on seasonally adjusted", col="darkgreen")
+```
+
+#### What is the effect of the outlier?    
+
+
+The seasonally adjusted series shows a large spike in the corresponding month.
+
+\newpage
+### f) Does it make any difference if the outlier is near the end rather than in the middle of the time series?
+```{r fpp-6.2f, fig.width=10, fig.height=7, warning=F}
+plastics3 <- plastics
+## changing November of year 5
+plastics3[59] <- plastics3[59]+500
+plastics3
+plot(plastics3, main="Plastics, with outlier at penultimate month")
+
+## decompose the perturbed series plastics3
+decompose_plastics_3 <- decompose(plastics3, type = "multiplicative")
+# autoplot
+autoplot(decompose_plastics_3) + 
+  ggtitle("Plastics: decomposition of multiplicative time series with outlier at end")
+
+plastics_seasadj_3 <- seasadj(decompose_plastics_3)
+plastics_seasadj_3
+plot(plastics_seasadj_3, 
+     main="Plastics, Seasonal Adjustment, outlier at month 59",
+     col="darkgreen")
+
+autoplot(plastics3, series="Data") +
+  autolayer(trendcycle(decompose_plastics_3), series="Trend") +
+  autolayer(seasadj(decompose_plastics_3), series="Seasonally Adjusted") +
+  xlab("Year") + ylab("Monthly sales") +
+  ggtitle("Plastics: with perturbation at penultimate month") +
+  scale_colour_manual(values=c("gray","blue","red"),
+             breaks=c("Data","Seasonally Adjusted","Trend"))
+
+## impact on trendcycle
+plot(trendcycle(decompose_plastics_3)-trendcycle(decompose_plastics),
+     ylab="change in trend", main="impact on trendcycle", col="blue")
+
+## impact on seasonal
+plot(seasonal(decompose_plastics_3)-seasonal(decompose_plastics),
+     ylab="change in seasonal", main="impact on seasonal", col="red")
+
+## impact on seasonally adjusted
+plot(seasadj(decompose_plastics_3)-seasadj(decompose_plastics),
+     ylab="change in seasonallly adjusted", 
+     main="impact on seasonally adjusted", col="darkgreen")
+
+```
+
+When the perturbation occurs in the middle of the timeseries, the trendcycle is elevated for a year, and then falls back down.  The seasonal adjustment at the month of perturbation (June of 3rd year) only reflects about 63 percent of the shock (314 points out of 500), while the seasonal adjustment for the corresponding month in theother years drops by 14 to 21 percent of the shock.    
+
+
+When the perturbation occurs near the end of the timeseries, the trendcycle is only adjusted starting from 6 months before the shock; because this method does not compute trendcycle during the first or last 6 months of the series, only 2 months are affected (i.e., months 53 and 54 for a shock in month 59).  The seasonal adjustment in month 59 corresponds exceeds the amount of the shock (502 points adjustment vs. a shock of 500) while the other months receive a negligible adjustment.
+
+
+***
+\newpage
+## 6.3  Recall your `retail` time series data (from Exercise 3 in Section 2.10).   
+```{r fpp-6.3, fig.width=10, fig.height=7}
+retaildata <- readxl::read_excel("retail.xlsx", skip=1)
+mycode <- "A3349396W"
+mytitle <-  "Monthly Turnover;Total(State);Total(Industry)"
+mymain <- paste("Retail: ", mycode,mytitle)
+retail_ts <- ts(retaildata[,mycode],frequency=12, start=c(1982,4))
+# plot the data to see if there is a trend or seasonality.
+
+plot(retail_ts, main=mymain)
+
+```
+
+\newpage
+### Decompose the series using X11.   
+
+```{r fpp-6.3b-X11, fig.width=10, fig.height=7}
+
+library(seasonal)
+retail_ts %>% seas(x11="") -> retail_X11_fit
+
+## Autoplot of fit
+autoplot(retail_X11_fit) +
+  ggtitle(paste("X11 decomposition of",mymain))
+
+## Plot of 6 fit data series
+plot(retail_X11_fit$data)
+
+## Plot of the dataframe
+plot(retail_X11_fit, main="Original and Adjusted Series - note outlier in June 2000")
+
+##Autoplot of data, trend, and seasonally adjusted data
+
+autoplot(retail_ts, series="Data") +
+  autolayer(trendcycle(retail_X11_fit), series="Trend") +
+  autolayer(seasadj(retail_X11_fit), series="Seasonally Adjusted") +
+  xlab("Year") + ylab("Monthly turnover") +
+  ggtitle(mymain) +
+  scale_colour_manual(values=c("gray","blue","red"),
+             breaks=c("Data","Seasonally Adjusted","Trend"))
+
+
+```
+
+### Does it reveal any outliers, or unusual features that you had not noticed previously?
+
+There is an outlier in June of 2000.  
+
+In most years, the sales drop off from May to June, and then increase in July. (This happens to be the Australian winter.)  However, in 2000, the raw data series shows a sharp increase in June 2000, which is not present in other years.
