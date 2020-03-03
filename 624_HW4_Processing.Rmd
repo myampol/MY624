@@ -1,0 +1,544 @@
+---
+title: "DATA624-HW4-Preprocessing"
+author: "Michael Y."
+date: "3/1/2020"
+subtitle: "Kuhn & Johnson exercises 3.1, 3.2"
+output:
+  html_document:
+    highlight: pygments
+    theme: cerulean
+    code_folding: show
+    toc: yes
+    toc_float: yes
+    toc_depth: 3
+    keep_md: yes
+    md_extensions: +grid_tables
+  pdf_document:
+    md_extensions: +grid_tables
+    toc: yes
+    toc_depth: 3
+    keep_md: yes
+    keep_tex: yes
+classoption: landscape
+urlcolor: blue
+linkcolor: blue
+editor_options:
+  chunk_output_type: inline
+header-includes: 
+- \usepackage{graphicx}
+- \usepackage{float}
+---
+
+<style>
+  .main-container {
+    max-width: 1200px !important;
+  }
+</style>
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+mydir <- "C:/Users/Michael/Dropbox/priv/CUNY/MSDS/202002-Spring/DATA624_Jeff/624_20200301_HW4_Overfitting"
+setwd(mydir)
+knitr::opts_knit$set(root.dir = mydir)
+```
+
+\newpage
+```{r libraries}
+library(fpp2)
+library(tidyverse)
+library(corrplot)
+library(e1071)
+library(caret)
+library(kableExtra)
+library(AppliedPredictiveModeling)
+```
+
+\newpage
+# Homework 4 - Preprocessing
+
+Do problems 3.1 and 3.2 in the Kuhn and Johnson book Applied Predictive Modeling. 
+Please submit both your Rpubs link as well as attach the .rmd file with your code.
+
+
+
+***
+## 3.1 Glass identification
+
+The UC Irvine Machine Learning Repository6 contains a data set related to glass identification.    
+The data consist of 214 glass samples labeled as one of seven class categories.    
+There are nine predictors, including 
+
+* the refractive index ("RI") and 
+* percentages of eight elements:    
+  + Na, Mg, Al, Si, K, Ca, Ba, and Fe.
+
+The data can be accessed via:
+
+```{r KJ-3.1}
+library(mlbench)
+data(Glass)
+str(Glass)
+#'data.frame': 214 obs. of 10 variables:
+#$ RI : num 1.52 1.52 1.52 1.52 1.52 ...
+#$ Na : num 13.6 13.9 13.5 13.2 13.3 ...
+#$ Mg : num 4.49 3.6 3.55 3.69 3.62 3.61 3.6 3.61 3.58 3.6 ...
+#$ Al : num 1.1 1.36 1.54 1.29 1.24 1.62 1.14 1.05 1.37 1.36 ...
+#$ Si : num 71.8 72.7 73 72.6 73.1 ...
+#$ K : num 0.06 0.48 0.39 0.57 0.55 0.64 0.58 0.57 0.56 0.57 ...
+#$ Ca : num 8.75 7.83 7.78 8.22 8.07 8.07 8.17 8.24 8.3 8.4 ...
+#$ Ba : num 0 0 0 0 0 0 0 0 0 0 ...
+#$ Fe : num 0 0 0 0 0 0.26 0 0 0 0.11 ...
+#$ Type: Factor w/ 6 levels "1","2","3","5",..: 1 1 1 1 1 1 1 1 1 1 ...
+```
+
+\newpage
+### (a) Using visualizations, explore the predictor variables to understand their distributions as well as the relationships between predictors.
+
+```{r KJ-3.1a0}
+Glass %>% 
+  select (-Type) -> Glass_Predictors
+```
+
+```{r KJ-3.1a-pairs, fig.width=10,fig.height=7}
+#### Pairs plot
+psych::pairs.panels(Glass_Predictors, main="Pairs Plot")
+```
+
+
+```{r KJ-3.1a-hist, fig.width=10,fig.height=7}
+#### Histogram and Density
+par(mfrow=c(3,3),oma= c(0, 0, 2, 0))
+for (col in 1:ncol(Glass_Predictors)) {
+    hist(Glass_Predictors[,col],
+         col=rainbow(9)[col],
+         prob=TRUE,
+         main=names(Glass_Predictors[col]),
+         xlab=paste(names(Glass_Predictors[col])," skewness = ", 
+                    round(skewness(Glass_Predictors[,col]),4)),
+         ylim=c(0,1.3*max(density(Glass_Predictors[,col])$y))
+         )
+    lines(density(Glass_Predictors[,col]),lwd=3)
+    abline(v=median(Glass_Predictors[,col]),lwd=3,lty=3, col="blue")
+    abline(v=mean(Glass_Predictors[,col]),lwd=3,lty=2, col="red")
+mtext("Histogram, Densities, Means, Medians for Glass Components", 
+      side = 3, line = +0.5, outer = TRUE, cex=1.5)
+  
+}
+
+```
+
+
+```{r KJ-3.1a-box-pre, fig.width=10,fig.height=7}
+#### Boxplots
+par(mfrow=c(3,3),oma= c(0, 0, 2, 0))
+for (col in 1:ncol(Glass_Predictors)) {
+    boxplot(Glass_Predictors[,col],
+         col=rainbow(9)[col],
+         horizontal = TRUE,
+         main=names(Glass_Predictors[col]),
+         xlab=paste(names(Glass_Predictors[col])," skewness = ", 
+                    round(skewness(Glass_Predictors[,col]),4))
+         )
+
+mtext("Boxplots and Skewness for Glass Components", 
+      side = 3, line = +0.5, outer = TRUE, cex=1.5)
+  
+}
+
+```
+
+```{r KJ-3.1a-correl, fig.width=8,fig.height=7}
+#### Correlations
+GlassCorr <- cor(Glass_Predictors)
+
+corrplot(corr = GlassCorr, type = "upper", outline = T, order="original", 
+           sig.level = 0.05, insig = "blank", addCoef.col = "black",
+           title = "\nCorrelation between Glass components",
+           number.cex = 1.0, number.font = 2, number.digits = 2 )
+  
+```
+
+
+There is a very high positive correlation, +.81, between `Ca` and the Refractive Index, `RI`.   
+There are a number of moderately strong correlations, both positive and negative, with values close to $\pm 0.5$.  
+
+
+\newpage
+### (b) Do there appear to be any outliers in the data? Are any predictors skewed?
+
+```{r KJ-3.1b}
+# Skewness
+apply(X = Glass_Predictors, MARGIN = 2, FUN=skewness) %>% sort -> Glass_Skew
+Glass_Skew %>% 
+  kable(caption = "Skewness") %>% 
+  kable_styling(c("bordered","striped"),full_width = F)
+
+```
+
+The boxplots reveal numerous outliers, most notably with **K**.    
+Because most of the values for **Ba** (176) and **Fw** (144) are zeroes, all the other points for these elements appear as "outliers" under the standard boxplot method.
+
+
+**Mg** is heavily skewed to the **left**.    
+**K, Ba, Ca**, and **Fe** are heavily skewed to the **right**.    
+**RI** and **Al** are mildly skewed to the **right**.    
+
+\newpage
+### (c) Are there any relevant transformations of one or more predictors that might improve the classification model?
+
+We'll try the following set of transformations:
+
+* Box-Cox transformation 
+* Center the variables at mean=0 
+* Scale to stdev=1
+
+```{r KJ-3.1c, fig.width=10, fig.height=7}
+Glass_BoxCox1 <- predict(preProcess(Glass_Predictors, 
+                                    method=c('BoxCox','center','scale')), 
+                         Glass_Predictors)
+
+par(mfrow=c(3,3),oma= c(0, 0, 2, 0))
+for (col in 1:ncol(Glass_BoxCox1)) {
+    hist(Glass_BoxCox1[,col],
+         col=rainbow(9)[col],
+         prob=TRUE,
+         main=names(Glass_BoxCox1[col]),
+         xlab=paste(names(Glass_BoxCox1[col])," skewness = ", 
+                    round(skewness(Glass_BoxCox1[,col]),4)),   
+         ylim=c(0,1.3*max(density(Glass_BoxCox1[,col])$y))
+         )
+    lines(density(Glass_BoxCox1[,col]),lwd=3)
+    abline(v=median(Glass_BoxCox1[,col]),lwd=3,lty=3, col="blue")
+    abline(v=mean(Glass_BoxCox1[,col]),lwd=3,lty=2, col="red")
+mtext("Histogram, Densities, for BoxCox, center, and scale transforms", 
+      side = 3, line = +0.5, outer = TRUE, cex=1.5)
+}
+
+
+
+```
+
+
+
+\newpage
+```{r KJ-3.1a-box-post, fig.width=10,fig.height=7}
+#### Boxplots following transformations
+par(mfrow=c(3,3),oma= c(0, 0, 2, 0))
+for (col in 1:ncol(Glass_BoxCox1)) {
+    boxplot(Glass_BoxCox1[,col],
+         col=rainbow(9)[col],
+         horizontal = TRUE,
+         main=names(Glass_BoxCox1[col]),
+         xlab=paste(names(Glass_BoxCox1[col])," skewness = ", 
+                    round(skewness(Glass_BoxCox1[,col]),4))
+         )
+
+mtext("Boxplots and Skewness for transformed Glass Components", 
+      side = 3, line = +0.5, outer = TRUE, cex=1.5)
+  
+}
+
+```
+
+The variables are now all standardized with a centered mean=0 and stdev=1.
+The Box-Cox transformation does not impact most of these variables.   
+It does improve the following items:
+
+* **Na**, for which the skewness has reduced from 0.4478 to  0.0338
+* **Al**, for which the skewness has reduced from 0.8946 to  0.0911
+* **Ca**, for which the skewness has reduced from 2.0184 to -0.194 
+
+The Box-Cox transformation doesn't have an appreciable improvement on the skewness of the other variables.
+
+
+#### Skewness before and after Box-Cox transformation
+```{r KJ3.2c-compare-skewness}
+rbind(orig=apply(X = Glass_Predictors, MARGIN = 2, FUN=skewness),
+      xformed=apply(X = Glass_BoxCox1, MARGIN = 2, FUN=skewness)) %>%
+  kable(caption = "Skewness, before and after transformation")%>% 
+    kable_styling(c("bordered","striped"))
+
+```
+
+***
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\newpage
+## 3.2 Diseased Soybeans
+
+The soybean data can also be found at the UC Irvine Machine Learning Repository.     
+Data were collected to predict disease in 683 soybeans.   
+The 35 predictors are mostly categorical and include information on the environmental conditions (e.g., temperature, precipitation) and plant conditions (e.g., left spots, mold growth).    
+The outcome labels consist of 19 distinct classes.   
+
+
+The data can be loaded via:    
+
+```{r KJ-3.2}
+library(mlbench)
+data(Soybean)
+##See ?Soybean for details
+```
+
+**Description**
+
+There are 19 classes, only the first 15 of which have been used in prior work.    
+The folklore seems to be that the last four classes are unjustified by the data since they have so few examples.   
+There are 35 categorical attributes, some nominal and some ordered.    
+The value “dna” means does not apply.    
+The values for attributes are encoded numerically, with the first value encoded as “0,” the second as “1,” and so forth.
+
+**Format**
+
+A data frame with 683 observations on 36 variables.     
+There are 35 categorical attributes, all numerical and a nominal denoting the class.      
+
+[,1]	`Class`	the 19 classes   
+[,2]	`date`	apr(0),may(1),june(2),july(3),aug(4),sept(5),oct(6).   
+[,3]	`plant.stand`	normal(0),lt-normal(1).   
+[,4]	`precip`	lt-norm(0),norm(1),gt-norm(2).   
+[,5]	`temp`	lt-norm(0),norm(1),gt-norm(2).   
+[,6]	`hail`	yes(0),no(1).   
+[,7]	`crop.hist`	dif-lst-yr(0),s-l-y(1),s-l-2-y(2), s-l-7-y(3).   
+[,8]	`area.dam`	scatter(0),low-area(1),upper-ar(2),whole-field(3).     
+[,9]	`sever`	minor(0),pot-severe(1),severe(2).   
+[,10]	`seed.tmt`	none(0),fungicide(1),other(2).   
+[,11]	`germ`	90-100%(0),80-89%(1),lt-80%(2).   
+[,12]	`plant.growth`	norm(0),abnorm(1).   
+[,13]	`leaves`	norm(0),abnorm(1).   
+[,14]	`leaf.halo`	absent(0),yellow-halos(1),no-yellow-halos(2).   
+[,15]	`leaf.marg`	w-s-marg(0),no-w-s-marg(1),dna(2).   
+[,16]	`leaf.size`	lt-1/8(0),gt-1/8(1),dna(2).   
+[,17]	`leaf.shread`	absent(0),present(1).   
+[,18]	`leaf.malf`	absent(0),present(1).   
+[,19]	`leaf.mild`	absent(0),upper-surf(1),lower-surf(2).   
+[,20]	`stem`	norm(0),abnorm(1).   
+[,21]	``lodging`	yes(0),no(1).   
+[,22]	`stem.cankers`	absent(0),below-soil(1),above-s(2),ab-sec-nde(3).      
+[,23]	`canker.lesion`	dna(0),brown(1),dk-brown-blk(2),tan(3).   
+[,24]	`fruiting.bodies`	absent(0),present(1).   
+[,25]	`ext.decay`	absent(0),firm-and-dry(1),watery(2).   
+[,26]	`mycelium`	absent(0),present(1).   
+[,27]	`int.discolor`	none(0),brown(1),black(2).   
+[,28]	`sclerotia`	absent(0),present(1).   
+[,29]	`fruit.pods`	norm(0),diseased(1),few-present(2),dna(3).   
+[,30]	`fruit.spots`	absent(0),col(1),br-w/blk-speck(2),distort(3),dna(4).     
+[,31]	`seed`	norm(0),abnorm(1).   
+[,32]	`mold.growth`	absent(0),present(1).   
+[,33]	`seed.discolor`	absent(0),present(1).   
+[,34]	`seed.size`	norm(0),lt-norm(1).   
+[,35]	`shriveling` absent(0),present(1).   
+[,36]	`roots`	norm(0),rotted(1),galls-cysts(2).  
+
+
+\newpage
+### (a) Investigate the frequency distributions for the categorical predictors. 
+
+
+
+```{r KJ-3.2a}
+### Summary
+summary(Soybean)
+n = ncol(Soybean)
+```
+
+
+```{r KJ-3.2a-plot, fig.width=9,fig.height=7}
+SoybeanPred <- Soybean[,-1]
+### Scatterplots
+par(mfrow = c(5,7))
+for (i in 1:ncol(SoybeanPred)) {
+  smoothScatter(SoybeanPred[ ,i],  
+                xlab="case",
+                ylab =names(SoybeanPred[i]),  
+                main = names(SoybeanPred[i]))
+}
+```
+
+```{r KJ3.2-ratios}
+ratio = NULL
+tabl = list()
+sumtabl = list()
+for (i in colnames(Soybean)) { 
+  print("_______________________________________________________________________________")
+  print(i); 
+  tabl[[i]] = sort(table(Soybean[,i]),decreasing = T)
+  sumtabl[[i]] = sum(tabl[[i]])
+  result=tabl[[i]] / sumtabl[[i]]
+  print(result)
+    ratio[i] = result[1]/result[2]
+  print(paste("ratio of first 2 values in ",i,": ", round(ratio[i],4)))
+}
+
+
+```
+
+
+\newpage
+#### Variance of each predictor
+```{r KJ-3.1a-variance}
+# compute the variance on each column (excluding the first column, Class), ignoring NAs
+apply(X=Soybean[,2:36],MARGIN = 2, FUN=var, na.rm=T) %>% 
+  sort() %>%
+  kable(caption="Variance of each predictor") %>%   
+  kable_styling(c("bordered","striped"),full_width = F)
+
+```
+
+#### Are any of the distributions degenerate in the ways discussed earlier in this chapter?
+
+Here are the definitions from the book:
+
+##### **zero variance predictor**: a predictor variable that has a single unique value
+
+There are no such variables with zero variance.
+
+##### **near-zero** variance predictors: 
+
+* may have a single value for the vast majority of the samples;
+* some predictors might have only a handful of unique values that occur with very low frequencies
+
+##### Rule-of-thumb:
+
+###### The fraction of unique values over the sample size is low (say 10%).
+
+All variables meet this criterion.
+
+###### The ratio of the frequency of the most prevalent value to the frequency of the second most prevalent value is large (say around 20).
+
+The following variables meet this criterion:  
+
+* leaf.mild 
+* mycelium
+* sclerotia
+
+
+\newpage
+There is a function, `caret::nearZeroVar` , which can compute this directly:
+
+```{r KJ-3.2a-nearZeroVar}
+caret::nearZeroVar(Soybean[,2:36],names=T,saveMetrics = T)
+
+```
+
+\newpage
+### (b) Roughly 18% of the data are missing. 
+
+```{r KJ-3.2b-missing}
+Soybean.incomplete = Soybean[!complete.cases(Soybean),]
+
+# Dimension of Soybean.incomplete
+Soybean_incomplete_rows <- nrow(Soybean.incomplete)
+
+Soybean.complete = Soybean[complete.cases(Soybean),]
+
+# Dimension of Soybean.complete
+Soybean_complete_rows <- nrow(Soybean.complete)
+
+
+```
+
+The number of cases which are missing some data is `r Soybean_incomplete_rows` out of `r nrow(Soybean)` total cases.
+
+\newpage
+#### Is the pattern of missing data related to the classes?
+
+The missing data occurs in the following classes:
+
+```{r KJ-3.2b-classes}
+
+# List of classes with missing elements
+Soybean.incomplete$Class%>% 
+  unique() %>% 
+  sort() %>%
+  kable(caption = "Classes with missing data elements") %>% 
+  kable_styling(c("bordered","striped"),full_width = F)
+```
+
+The missing data is all in 5 cases.
+
+\newpage
+#### Are there particular predictors that are more likely to be missing?    
+
+
+##### Which columns have missing data, and what is the pattern for the missing data?    
+##### Let's leverage the VIM package to get this information.
+
+```{r VIM-aggr-pre, fig.width=10,fig.height=7}
+library(VIM)
+ggr_plot <- aggr(Soybean, col=c('navyblue','red'), numbers=TRUE, sortVars=TRUE, 
+                 labels=names(Soybean), cex.axis=.7, gap=3, 
+                 ylab=c("Histogram of missing data","Pattern"))
+```
+
+For the classes which have missing elements, the count of such missing elements is as follows:
+
+```{r KJ-3.2-missing-predictors}
+
+#Number of missing elements
+Soybean.incomplete %>% 
+  summarize_all(list(
+    ~ sum(is.na(.)))
+    ) %>% 
+  sort(decreasing = T) %>%
+  t() %>%
+  kable(caption="Count of missing elements") %>%   
+  kable_styling(c("bordered","striped"),full_width = F)
+
+```
+
+For the 5 Classes with missing elements, "hail", "sever", "seed.tmt" and "lodging" are entirely absent for all cases.   
+
+Other elements are missing in accordance with the above table.   
+
+
+
+
+\newpage
+### Develop a strategy for handling missing data, either by eliminating predictors or imputation.
+
+```{r KJ-3.2c}
+
+```
+
+#### **Let's use the MICE package to impute missing values**
+
+MICE:  Multivariate Imputation by Chained Equations
+
+```{r MICE-impute, echo=T, output=F, error=F, warning=F}
+library(mice)
+comp.data <- mice(Soybean,m=2,maxit=10,meth='pmm',seed=500)
+Soybean.imputed = complete(comp.data)
+```
+
+\newpage
+#### Any missing data?
+```{r VIM-aggr-post, echo=T, warning=F, error=F}
+##### Let's check if there is still any missing data, using VIM::aggr    
+#library(VIM)
+ggr_plot <- aggr(Soybean.imputed, 
+                 col=c('navyblue','red'), 
+                 numbers=TRUE, 
+                 sortVars=TRUE, 
+                 labels=names(Soybean), 
+                 cex.axis=.7, gap=3, 
+                 ylab=c("Histogram of missing data after imputation","Pattern"))
+```
+
+**There is no missing data -- all the NAs have been assigned imputed values.**
