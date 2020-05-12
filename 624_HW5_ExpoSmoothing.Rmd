@@ -1,0 +1,580 @@
+---
+title: "DATA624-HW5-ExpoSmoothing"
+author: "Michael Y."
+date: "3/08/2020"
+subtitle: "FPP-Hyndman exercises 7.1, 7.5, 7.6, 7.7, 7.8, 7.9"
+output:
+  html_document:
+    highlight: pygments
+    theme: cerulean
+    code_folding: show
+    toc: yes
+    toc_float: yes
+    toc_depth: 3
+    keep_md: yes
+    md_extensions: +grid_tables
+  pdf_document:
+    md_extensions: +grid_tables
+    toc: yes
+    toc_depth: 3
+    keep_md: yes
+    keep_tex: yes
+classoption: portrait
+urlcolor: blue
+linkcolor: blue
+editor_options:
+  chunk_output_type: inline
+header-includes: 
+- \usepackage{graphicx}
+- \usepackage{float}
+---
+
+<style>
+  .main-container {
+    max-width: 1200px !important;
+  }
+</style>
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen = 999, digits=7)
+```
+
+\newpage
+```{r libraries}
+library(fable)
+library(forecast)
+library(fpp2)
+library(kableExtra)
+```
+
+\newpage
+# Homework 5 - Exponential Smoothing
+
+Do exercises 7.1, 7.5, 7.6, 7.7, 7.8 and 7.9  in Hyndman. 
+Please submit both your Rpubs link as well as attach the .rmd file with your code.
+
+***
+\newpage
+## 7.1 Consider the `pigs` series — the number of pigs slaughtered in Victoria each month.
+
+### a) Use the `ses()` function in R to find the optimal values of  $\alpha$ and $\ell_0$, and generate forecasts for the next four months.
+
+
+```{r fpp-7.1a}
+# Monthly total number of pigs slaughtered in Victoria, Australia (Jan 1980 – Aug 1995)
+pigs.title <- "Monthly number of pigs slaughtered in Victoria, Australia"
+autoplot(pigs) + ggtitle(pigs.title) + geom_line(color="red")
+
+pigs.ses_forecast <- ses(pigs, h=4)
+summary(pigs.ses_forecast)
+pigs.params <- pigs.ses_forecast$model$fit$par
+pigs.alpha <- pigs.params[1]
+pigs.l_0 <-pigs.params[2]
+```
+
+The optimal value of $\alpha$ is `r pigs.alpha` and the optimal value of $\ell_0$ is `r pigs.l_0` .
+
+
+### b) Compute a 95% prediction interval for the first forecast using  $\hat{y} \pm 1.96s$   where  $s$ is the standard deviation of the residuals. 
+
+
+```{r fpp-7.1b}
+# Compute the first forecast, and the standard deviation
+pigs.ses_stdev <- sd(pigs.ses_forecast$residuals)
+pigs_ses_forecast_1 <- pigs.ses_forecast$mean[1]
+
+# Compute the prediction interval
+pigs.my_pred95 <- c(
+  my.Lower.95 = pigs_ses_forecast_1 - 1.96 * pigs.ses_stdev, 
+  my.Upper.95 = pigs_ses_forecast_1 + 1.96 * pigs.ses_stdev
+)
+# 95% prediction interval for the first forecast - calculated
+pigs.my_pred95
+
+```
+
+#### Compare your interval with the interval produced by R.
+
+
+```{r fpp-7.1bb}
+pigs.R_pred95 <- c(
+  R.Lower = pigs.ses_forecast$lower[1,"95%"],
+  R.Upper = pigs.ses_forecast$upper[1,"95%"])
+# 95% prediction interval for the first forecast - as produced by R
+pigs.R_pred95
+```
+
+The interval computed by R is slightly wider than the interval computed manually:
+
+```{r comparepigs95}
+pigs.compare95 = rbind(pigs.my_pred95,
+                       pigs.R_pred95)
+colnames(pigs.compare95) <- c("Lower.95",
+                              "Upper.95")
+pigs.compare95
+```
+
+***
+\newpage
+
+## 7.5 Data set `books` contains the daily sales of paperback and hardcover books at the same store. The task is to forecast the next four days’ sales for paperback and hardcover books.
+
+### a) Plot the series and discuss the main features of the data.
+
+```{r fpp-7.5a}
+# Daily sales of paperback and hardcover books at the same store.
+summary(books)
+autoplot(books)+ggtitle("Daily sales of paperback and hardcover books at the same store")
+```
+
+The dataset contains the daily sales of paperback and hardcover books over a period of 30 days.    
+Both series exhibit similarly upward trends over the month, but no seasonality (e.g., during the course of each "week" is evident.     
+The dataset is not labeled in a way which could enable identification of days of the week (e.g., weekdays vs. weekends.))    
+
+### b) Use the `ses()` function to forecast each series, and plot the forecasts.
+
+```{r fpp-7.5b}
+# SES forecasts of books data
+hardcover_forecast_ses <- ses(books[,"Hardcover"])
+paperback_forecast_ses <- ses(books[,"Paperback"])
+autoplot(books) + ggtitle("Daily sales of paperback and hardcover books, with SES predictions") +
+  autolayer(hardcover_forecast_ses, series="Hardcover", PI=FALSE,size=1.5,linetype=5) +
+  autolayer(paperback_forecast_ses, series="Paperback", PI=FALSE,size=1.5,linetype=5)
+```
+
+
+
+### c) Compute the RMSE values for the training data in each case.
+  
+
+```{r fpp-7.5c}
+# Hardcover RMSE
+hardcover_RMSE_ses <- sqrt(hardcover_forecast_ses$model$mse)
+# Paperback RMSE
+paperback_RMSE_ses <- sqrt(paperback_forecast_ses$model$mse)
+books_RMSE_ses <- c(Hardcover=hardcover_RMSE_ses,
+                PaperBack=paperback_RMSE_ses)
+# RMSE ses
+books_RMSE_ses
+```
+
+Under the SES model, the hardcover RMSE is `r hardcover_RMSE_ses` and the paperback RMSE is `r paperback_RMSE_ses`. 
+
+  
+  
+***
+\newpage
+## 7.6 We will continue with the daily sales of paperback and hardcover books in data set `books`.
+
+### a) Apply Holt’s linear method to the `paperback` and `hardback` series and compute four-day forecasts in each case.
+
+```{r fpp-7.6a}
+# Holt predictions for books
+hardcover_forecast_holt <- holt(books[,"Hardcover"], h=4)
+paperback_forecast_holt <- holt(books[,"Paperback"], h=4)
+autoplot(books) + ggtitle("Daily sales of paperback and hardcover books, with Holt predictions") +
+  autolayer(hardcover_forecast_holt, series="Hardcover", PI=FALSE,size=1.5,linetype=1) +
+  autolayer(paperback_forecast_holt, series="Paperback", PI=FALSE,size=1.5,linetype=1)
+
+```
+
+
+### b) Compare the RMSE measures of Holt’s method for the two series to those of simple exponential smoothing in the previous question. (Remember that Holt’s method is using one more parameter than SES.) 
+```{r fpp-7.6b}
+
+# Hardcover
+hardcover_RMSE_holt <- sqrt(hardcover_forecast_holt$model$mse)
+# Paperback
+paperback_RMSE_holt <- sqrt(paperback_forecast_holt$model$mse)
+# Holt RMSE
+books_RMSE_holt <- c(Hardcover=hardcover_RMSE_holt,
+                     PaperBack=paperback_RMSE_holt)
+books_RMSE_holt
+```
+
+Under the HOLT model, the hardcover RMSE is `r hardcover_RMSE_holt` and the paperback RMSE is `r paperback_RMSE_holt`. 
+
+```{r combine-books-RMSE}
+books_RMSE <- rbind(books_RMSE_ses,
+                    books_RMSE_holt)
+books_RMSE
+```
+
+The RMSE for Holt is lower than that for SES.
+
+#### Discuss the merits of the two forecasting methods for these data sets.
+
+The SES method provides a simple, straightline forecast, while the Holt forecasting method incorporates the trend, which is increasing.
+
+### c) Compare the forecasts for the two series using both methods. Which do you think is best?
+
+
+```{r fpp-7.6c}
+# Forecasts
+rbind(SES=hardcover_forecast_ses$mean[1:4],
+      Holt=hardcover_forecast_holt$mean[1:4]) %>% t
+```
+
+The Holt forecast appears better, as it incorporates the increasing trend, and is thus always greater than the SES forecast.
+
+
+### d) Calculate a 95% prediction interval for the first forecast for each series, using the RMSE values and assuming normal errors. 
+
+###### Compute hardcover Holt prediction intervals
+```{r fpp-7.6d}
+# Hardcover forecast under HOLT
+hardcover_Upper95_holt <- hardcover_forecast_holt$mean[1] + 1.96*hardcover_RMSE_holt
+hardcover_Lower95_holt <- hardcover_forecast_holt$mean[1] - 1.96*hardcover_RMSE_holt
+# Hardcover HOLT 95% PI
+my_hardcover_holt_95 <- c(`Lower.95%` = hardcover_Lower95_holt, 
+                          `Upper.95%` = hardcover_Upper95_holt)
+#my_hardcover_holt_95
+
+# Holt 95% PI returned by R
+R_hardcover_holt_95 <- c(Lower=hardcover_forecast_holt$lower[1,"95%"],
+                         Upper=hardcover_forecast_holt$upper[1,"95%"])
+#R_hardcover_holt_95
+
+rbind(my_hardcover_holt_95,R_hardcover_holt_95)%>% kable() %>% kable_styling(c("bordered","striped"),full_width = F)
+
+```
+
+###### Compare hardcover Holt prediction intervals
+
+```{r compare_hardcover95_holt}
+hardcover_holt_compare95 = rbind(my_hardcover_holt_95,
+                            R_hardcover_holt_95)
+hardcover_holt_compare95 %>% 
+  kable(caption = "Hardcover Prediction Intervals (Holt") %>% 
+  kable_styling(c("bordered","striped"),full_width = F)
+```
+
+The interval calculated by R is wider.
+
+
+```{r plot-hardcover-holt}
+autoplot(hardcover_forecast_holt) +
+autolayer(fitted(hardcover_forecast_holt), series = "Fitted Holt Hardcover") +
+ggtitle("Hardcover prediction (Holt)") +
+  xlab("Time") +
+  ylab("Book Sales") +
+  guides(colour=guide_legend(title="Data series"), 
+         fill=guide_legend(title="Prediction interval"))
+```
+
+###### Compute paperback Holt prediction intervals
+
+```{r fpp-7.6dd}
+# paperback forecast under HOLT
+paperback_Upper95Holt <- paperback_forecast_holt$mean[1] + 1.96*paperback_RMSE_holt
+paperback_Lower95Holt <- paperback_forecast_holt$mean[1] - 1.96*paperback_RMSE_holt
+# paperback HOLT 95% PI
+my_paperback_holt_95 <- c(`Lower.95%` = paperback_Lower95Holt, `Upper.95%` = paperback_Upper95Holt)
+#my_paperback_holt_95
+
+# paperback HOLT computed by R
+R_paperback_holt_95 <- c(Lower=paperback_forecast_holt$lower[1,"95%"],
+                         Upper=paperback_forecast_holt$upper[1,"95%"])
+#R_paperback_holt_95
+```
+
+###### Compare paperback Holt prediction intervals
+
+```{r compare_paperback95_holt}
+paperback.compare95 = rbind(my_paperback_holt_95,
+                            R_paperback_holt_95)
+paperback.compare95 %>%   
+  kable(caption = "Paperback Prediction Intervals (Holt)") %>% 
+  kable_styling(c("bordered","striped"),full_width = F)
+```
+
+The interval calculated by R is wider.
+
+```{r plot-paperback-holt}
+autoplot(paperback_forecast_holt) +
+autolayer(fitted(paperback_forecast_holt), series = "Fitted Holt paperback") +
+ggtitle("paperback prediction (Holt)") +
+  xlab("Time") +
+  ylab("Book Sales") +
+  guides(colour=guide_legend(title="Data series"), 
+         fill=guide_legend(title="Prediction interval"))
+```
+
+
+
+#### Compare your intervals with those produced using `ses` and `holt`.
+
+###### Compute hardcover SES prediction intervals
+
+```{r compare-intervals_holt_ses}
+
+# Hardcover forecast under ses
+hardcover_Upper95_ses <- hardcover_forecast_ses$mean[1] + 1.96*hardcover_RMSE_ses
+hardcover_Lower95_ses <- hardcover_forecast_ses$mean[1] - 1.96*hardcover_RMSE_ses
+# Hardcover ses 95% PI
+my_hardcover_ses_95 <- c(`Lower.95%` = hardcover_Lower95_ses, 
+                          `Upper.95%` = hardcover_Upper95_ses)
+#my_hardcover_ses_95
+
+# ses 95% PI returned by R
+R_hardcover_ses_95 <- c(Lower=hardcover_forecast_ses$lower[1,"95%"],
+                         Upper=hardcover_forecast_ses$upper[1,"95%"])
+#R_hardcover_ses_95
+
+
+```
+
+
+###### Compare hardcover SES prediction intervals
+```{r compare_hardcover95_ses}
+hardcover_ses_compare95 = rbind(my_hardcover_ses_95,
+                            R_hardcover_ses_95)
+hardcover_ses_compare95  %>%   
+  kable(caption = "Hardcover Prediction Intervals (SES)") %>% 
+  kable_styling(c("bordered","striped"),full_width = F)
+```
+
+```{r plot-hardcover-ses}
+autoplot(hardcover_forecast_ses) +
+autolayer(fitted(hardcover_forecast_ses), series = "Fitted ses Hardcover") +
+ggtitle("Hardcover prediction (ses)") +
+  xlab("Time") +
+  ylab("Book Sales") +
+  guides(colour=guide_legend(title="Data series"), 
+         fill=guide_legend(title="Prediction interval"))
+```
+
+
+
+
+
+###### Compute paperback SES prediction intervals
+```{r compare-paperback-intervals_holt_ses}
+
+# paperback forecast under ses
+paperback_Upper95_ses <- paperback_forecast_ses$mean[1] + 1.96*paperback_RMSE_ses
+paperback_Lower95_ses <- paperback_forecast_ses$mean[1] - 1.96*paperback_RMSE_ses
+# paperback ses 95% PI
+my_paperback_ses_95 <- c(`Lower.95%` = paperback_Lower95_ses, 
+                          `Upper.95%` = paperback_Upper95_ses)
+#my_paperback_ses_95
+
+# ses 95% PI returned by R
+R_paperback_ses_95 <- c(Lower=paperback_forecast_ses$lower[1,"95%"],
+                         Upper=paperback_forecast_ses$upper[1,"95%"])
+#R_paperback_ses_95
+
+
+```
+
+###### Compare paperback SES prediction intervals
+```{r compare_paperback95_ses}
+paperback_ses_compare95 = rbind(my_paperback_ses_95,
+                            R_paperback_ses_95)
+paperback_ses_compare95  %>%   
+  kable(caption = "Paperback Prediction Intervals (SES)") %>% 
+  kable_styling(c("bordered","striped"),full_width = F)
+```
+
+The intervals computed by R are wider.
+
+
+```{r plot-paperback-ses}
+autoplot(paperback_forecast_ses) +
+autolayer(fitted(paperback_forecast_ses), series = "Fitted ses paperback") +
+ggtitle("paperback prediction (ses)") +
+  xlab("Time") +
+  ylab("Book Sales") +
+  guides(colour=guide_legend(title="Data series"), 
+         fill=guide_legend(title="Prediction interval"))
+```
+
+
+The intervals computed by R are wider than those computed using the RMSE.
+
+
+***
+\newpage
+
+
+## 7.7 For this exercise use data set `eggs`, the price of a dozen eggs in the United States from 1900–1993. 
+
+### Experiment with the various options in the `holt()` function to see how much the forecasts change with damped trend, or with a Box-Cox transformation. Try to develop an intuition of what each argument is doing to the forecasts.
+
+[Hint: use h=100 when calling `holt()` so you can clearly see the differences between the various options when plotting the forecasts.]
+
+```{r fpp-7.7a}
+# Best model:
+fc <- holt(eggs, h=100, lambda=0.04, damped=FALSE)
+accuracy(fc)
+```
+
+
+#### Which model gives the best RMSE? 
+
+```{r fpp-7.7b}
+indexes=1:1000
+n=length(indexes)
+lambda_grid = rep(0,n)
+ME_grid = rep(0,n)
+RMSE_grid = rep(0,n)
+MAE_grid = rep(0,n)
+MPE_grid = rep(0,n)
+MAPE_grid = rep(0,n)
+MASE_grid = rep(0,n)
+ACF1_grid = rep(0,n)
+mse_grid = rep(0,n)
+amse_grid = rep(0,n)
+meanresid2 = rep(0,n)
+sqrtmeanresid2 = rep(0,n)
+for (i in indexes) {
+  lambda_grid[i] = i/1000
+  result = holt(eggs, h=100, lambda=lambda_grid[i], damped=FALSE)
+  result.acc = accuracy(result)
+  #print(c(lambda_grid[i],result.acc))
+  ME_grid[i] = result.acc[1,"ME"]
+  RMSE_grid[i] = result.acc[1,"RMSE"]
+  MAE_grid[i] = result.acc[1,"MAE"]
+  MPE_grid[i] = result.acc[1,"MPE"]
+  MAPE_grid[i] = result.acc[1,"MAPE"]
+  MASE_grid[i] = result.acc[1,"MASE"]
+  ACF1_grid[i] = result.acc[1,"ACF1"]
+  mse_grid[i] = result$model$mse
+  amse_grid[i] = result$model$amse
+  meanresid2[i] = mean(result$residuals^2)
+  sqrtmeanresid2[i] = sqrt(mean(result$residuals^2))
+  
+}
+
+biggrid <- cbind(lambda=lambda_grid,
+      ME=ME_grid,
+      RMSE=RMSE_grid,
+      MAE=MAE_grid,
+      MPE=MPE_grid,
+      MAPE=MAPE_grid,
+      MASE=MASE_grid,
+      ACF1=ACF1_grid,
+      mse=mse_grid,
+      amse=amse_grid,
+      meanresid2=meanresid2,
+      sqrtmeanresid2=sqrtmeanresid2)
+
+minRMSE = min(RMSE_grid)
+whichlambda = which(RMSE_grid==minRMSE)
+print(paste("The minimum RMSE = ", minRMSE," occurs when lambda = ", lambda_grid[whichlambda]))
+
+```
+The minimum RMSE = `r minRMSE` occurs when lambda = `r lambda_grid[whichlambda]`
+
+
+***
+\newpage
+## 7.8 Recall your `retail` time series data (from Exercise 3 in Section 2.10).
+
+### a) Why is multiplicative seasonality necessary for this series?
+
+```{r fpp-7.8a}
+mycode <- "A3349396W"
+mytitle <-  "Monthly Turnover;Total(State);Total(Industry)"
+mymain <- paste(mycode,mytitle)
+myts <- readxl::read_excel("retail.xlsx", skip=1)[,mycode] %>%
+  ts(frequency=12, start=c(1982,4))
+autoplot(myts,main=mymain)
+```
+
+
+The seasonal variation increases with the level of the series. 
+Therefore, we need to use multiplicative seasonality.
+
+
+
+
+### b) Apply Holt-Winters’ multiplicative method to the data. 
+
+```{r fpp-7.8b}
+HoltWintersMult1 <- hw(myts, seasonal='multiplicative', damped=FALSE)
+HoltWintersMult1$mean
+autoplot(HoltWintersMult1)
+```
+#### Experiment with making the trend damped.
+```{r fpp-7.8bb}
+HoltWintersMultDamped <- hw(myts, seasonal='multiplicative', damped=T)
+HoltWintersMultDamped$mean
+autoplot(HoltWintersMultDamped)
+```
+
+### c) Compare the RMSE of the one-step forecasts from the two methods. Which do you prefer?
+
+```{r fpp-7.8c}
+print("Holt-Winters Multiplicative (not damped):")
+accuracy(HoltWintersMult1)
+print("Holt-Winters Multiplicative Damped:")
+accuracy(HoltWintersMultDamped)
+
+```
+
+The RMSE is slightly lower on the non-damped model, which I would prefer as the trend is upward.
+
+
+### d) Check that the residuals from the best method look like white noise.
+
+```{r fpp-7.8d}
+checkresiduals(HoltWintersMult1)
+
+```
+
+There are significant correlations in the residuals.    
+
+There appears to be a quarterly pattern, as sales may be affected by whether one is in the beginning or the end of each quarter, with substantial reversion.    
+
+Therefore, these residuals do not look like white noise.    
+
+
+
+### e) Now find the test set RMSE, while training the model to the end of 2010. 
+
+
+```{r fpp-7.8e}
+myts %>% 
+  window(end=c(2010,12)) %>%
+  hw(seasonal='multiplicative', damped=FALSE) -> myresults
+
+myresults
+
+accuracy(myresults,x=myts)
+
+```
+
+#### Can you beat the seasonal naïve approach from Exercise 8 in Section 3.7?
+
+The test set RMSE is 353.0499 compared to 1389.337 for the seasonal naive method (Homework 2, final problem.)
+So, on this dataset, the Holt-Winters method is much better that the seasonal naive method.
+
+
+
+***
+\newpage
+## 7.9 For the same `retail` data, try an STL decomposition applied to the Box-Cox transformed series, followed by ETS on the seasonally adjusted data. 
+
+
+```{r fpp-7.9}
+myts %>% 
+  window(end=c(2010,12)) %>%
+  stlf(lambda=0) -> mySTLdecomposition
+mySTLdecomposition
+accuracy(mySTLdecomposition,x=myts)
+```
+
+
+### How does that compare with your best previous forecasts on the test set?
+
+
+Here the RMSE is 390.4325, which is worse than the 353.0499 obtained from Holt-Winters.
+
+
+
+***
+
