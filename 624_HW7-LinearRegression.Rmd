@@ -1,0 +1,1163 @@
+---
+title: "DATA624-HW7-Linear-Regression"
+author: "Michael Y."
+date: "4/5/2020"
+subtitle: "Kuhn-Johnson exercises 6.2, 6.3"
+output:
+  pdf_document:
+    md_extensions: +grid_tables
+    toc: yes
+    toc_depth: 3
+    keep_md: yes
+    keep_tex: yes
+    number_sections: no
+  html_document:
+    highlight: pygments
+    theme: cerulean
+    code_folding: show
+    toc: yes
+    toc_float: yes
+    toc_depth: 3
+    keep_md: yes
+    md_extensions: +grid_tables
+classoption: portrait
+urlcolor: blue
+linkcolor: blue
+editor_options:
+  chunk_output_type: inline
+header-includes: 
+ \usepackage{graphicx}
+ \usepackage{float}
+ \floatplacement{figure}{H}
+---
+
+<style>
+  .main-container {
+    max-width: 1200px !important;
+  }
+</style>
+
+---
+
+
+\newpage
+# Homework 7 - Linear Regression
+
+In Kuhn and Johnson do problems 6.2 and 6.3. There are only two but they consist of many parts.     
+
+Please submit a link to your Rpubs and submit the .rmd file as well.
+
+***
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(kableExtra)
+library(AppliedPredictiveModeling)
+library(moments)
+library(pls)
+library(VIM)
+library(mice)
+library(olsrr)
+library(corrplot)
+options(scipen = 999, digits=7)
+```
+
+
+\newpage
+
+## 6.2. Developing a model to predict permeability 
+(see Sect. 1.4) could save significant resources for a pharmaceutical company, 
+while at the same time more rapidly identifying molecules that have a sufficient permeability to become a drug.
+
+#### Permeability Data
+#### Description
+
+This pharmaceutical data set was used to develop a model for predicting compounds' **permeability**.    
+
+In short, **permeability** is the measure of a molecule's ability to cross a **membrane.**    
+
+The body, for example, has notable membranes between the body and brain, known as the **blood-brain barrier**, and between the gut and body in the intestines.   
+
+These membranes help the body guard critical regions from receiving undesirable or detrimental substances.   
+
+For an orally taken drug to be effective in the brain, it first must pass through the intestinal wall and then must pass through the blood-brain barrier in order to be present for the desired neurological target.   
+
+Therefore, a compound's ability to permeate relevant biological membranes is critically important to understand early in the drug discovery process.   
+
+Compounds that appear to be effective for a particular disease in research screening experiments, but appear to be poorly permeable may need to be altered in order improve permeability, and thus the compound's ability to reach the desired target.    
+
+Identifying permeability problems can help guide chemists towards better molecules.   
+
+**Permeability assays** such as **PAMPA** and **Caco-2** have been developed to help measure compounds' permeability (Kansy et al, 1998).   
+
+These screens are effective at quantifying a compound's permeability, but the assay is expensive labor intensive.   
+
+Given a sufficient number of compounds that have been screened, we could develop a **predictive model for permeability** in an attempt to potentially reduce the need for the assay.   
+
+In this project there were **165 unique compounds**; **1107 molecular fingerprints** were determined for each.   
+
+A **molecular fingerprint** is a binary sequence of numbers that represents the **presence or absence** of a specific molecular sub-structure.   
+
+The **response** is **highly skewed**,   
+the **predictors** are **sparse** (15.5 percent are present), and   
+many predictors are **strongly associated**.  
+
+Usage   
+`data(permeability)`   
+Value   
+
+* `permeability`: permeability values for each compound.  (A vector of 165 numbers.)   
+* `fingerprints`: a 165x1107 matrix of binary fingerprint indicator variables.   
+
+\newpage
+### (a) Start R and use these commands to load the data:
+```{r KJ62a}
+library(AppliedPredictiveModeling)
+data(permeability)
+```
+
+
+* The matrix `fingerprints` contains the 1,107 binary molecular predictors for the 165 compounds, while 
+* `permeability` contains permeability response.
+
+#### Examine the permeability data
+
+```{r KJ62a2}
+# dim
+dim(permeability)
+N=length(permeability)
+# str
+str(permeability)
+# head
+head(permeability)
+# tail
+tail(permeability)
+# summary with standard deviation and skewness:
+#library(moments)
+rbind(summary(permeability),
+      paste0("StDev  :",round(sd(permeability),2),"  "), 
+      paste0("Skew   : ",round(skewness(permeability),2),"  ")) %>% 
+      as.table()
+# histogram
+hist(permeability,breaks=20,col="lightgreen")
+# scatterplot
+mainlabel=paste("Permeability data (N =",N,")")
+plot(permeability,main=mainlabel)
+``` 
+
+The above data is heavily skewed to the right.    
+Additionally, all of the values for permeability are positive.   
+
+Therefore, we should consider **fitting the log** of the permeability data.   
+This would ensure that our predicted values are also positive, once we **exponentiate the log results**.
+
+\newpage
+
+#### examine the log(permeability)
+
+```{r KJ62a2log}
+log_permeability = log(permeability)
+colnames(log_permeability) <- "log(permeability)"
+rbind(summary(log_permeability),
+      paste0("StDev  : ",round(sd(log_permeability),2),"  "), 
+      paste0("Skew   :",round(skewness(log_permeability),2),"  ")) %>% 
+      as.table()
+# histogram
+hist(log_permeability,breaks=20,col="lightgreen")
+# scatterplot
+mainlabel=paste("log(Permeability) data (N =",N,")")
+plot(log_permeability,main=mainlabel)
+```
+
+
+
+
+\newpage
+### (b) The fingerprint predictors 
+#### indicate the presence or absence of substructures of a molecule and are often sparse meaning that relatively few of the molecules contain each substructure.   
+
+
+#### Filter out the predictors that have low frequencies using the `nearZeroVar` function from the `caret` package.
+
+```{r KJ62b}
+ 
+fingerprints_nearZeroVarCols <- nearZeroVar( fingerprints)
+fingerprints_nTotalCols <- ncol(fingerprints)
+fingerprints_nDropCols <- length(fingerprints_nearZeroVarCols)
+fingerprints_filtered1 <- fingerprints[,-fingerprints_nearZeroVarCols]
+fingerprints_nFiltered <- ncol(fingerprints_filtered1)
+dim(fingerprints_filtered1)
+```
+
+#### How many predictors are left for modeling?
+
+There are `r fingerprints_nDropCols` columns with nearZeroVar out of `r fingerprints_nTotalCols`, leaving a total of `r fingerprints_nFiltered` remaining, but there are high correlations between numerous columns.
+
+\newpage
+
+#### Check for high correlations between columns in the fingerprints_filtered data set:
+
+
+```{r KJ62c1}
+correl1 <- cor(fingerprints_filtered1) 
+
+# determinant is zero -- indicates correlation matrix is singular.
+print(paste("Determinant: ", det(correl1)))
+
+# many columns are identical to other columns.
+maxcor1 <- max(correl1-diag(1,ncol(correl1),ncol(correl1)))
+mincor1 <- min(correl1-diag(1,ncol(correl1),ncol(correl1)))
+print(paste("Range of off-diag correlations: ", 
+            paste0("[",mincor1,",",maxcor1,"]"), "on",ncol(correl1),"columns")) 
+
+# eliminate columns which are identical to other columns
+cutoff = 0.999999999
+identicals <- findCorrelation(correl1,cutoff = cutoff)
+num_identicals <- length(identicals)
+print(paste("Quantity of columns which have identical correlation values:", 
+            num_identicals, "out of",ncol(correl1)))
+
+# drop columns which are identical to some other column
+fingerprints_filtered2 <- fingerprints_filtered1[,-identicals]
+dim(fingerprints_filtered2)
+print(paste("Remaining number of columns: ", ncol(fingerprints_filtered2)))
+
+# examine correlations on the reduced matrix
+correl2 <- cor(fingerprints_filtered2) 
+maxcor2 <- round(max(correl2-diag(1,ncol(correl2),ncol(correl2))),5)
+mincor2 <- round(min(correl2-diag(1,ncol(correl2),ncol(correl2))),5)
+print(paste("Range of off-diag correlations: ", 
+            paste0("[",mincor2,",",maxcor2,"]"), "on",ncol(correl2),"columns")) 
+
+# determinant is still zero - matrix is singular
+print(paste("Determinant: ", det(correl2)))
+```
+
+\newpage
+
+#### Correlation grid #1
+
+```{r KJ62c1b, fig.width=10,fig.height=10}
+### be sure to specify corrplot::corrplot because the namespace may be masked by pls::corrplot
+corrplot::corrplot(
+  correl2,
+  method = "circle",
+  type = "upper",
+  order = "hclust",
+  tl.cex = 0.3,
+  main = paste("\nClustered correlations of reduced fingerprint matrix (ncol=",
+               ncol(correl2),") where abs(corr) < ", round(cutoff,4))
+)
+```
+
+There are still clusters of columns with very high correlations, so let's remove more columns.
+
+#### identify columns with high correlations, and remove 
+```{r KJ62c1c}
+cutoff = 0.8
+high_correl_cols <- findCorrelation(correl1,cutoff = cutoff)
+num_high_correl_cols <- length(high_correl_cols)
+print(paste("Quantity of columns which have abs(correlation) > ", cutoff ,":", 
+            num_high_correl_cols, "out of",ncol(correl1)))
+
+fingerprints_filtered3 <- fingerprints_filtered1[,-high_correl_cols]
+dim(fingerprints_filtered3)
+print(paste("Remaining number of columns: ", ncol(fingerprints_filtered3)))
+
+correl3 <- cor(fingerprints_filtered3) 
+
+maxcor3 <- round(max(correl3-diag(1,ncol(correl3),ncol(correl3))),5)
+mincor3 <- round(min(correl3-diag(1,ncol(correl3),ncol(correl3))),5)
+print(paste("Range of off-diag correlations: ", paste0("[",mincor3,",",maxcor3,"]"), "on",ncol(correl3),"columns")) 
+
+### Determinant is (barely) nonzero
+print(paste("Determinant: ", det(correl3)))
+```
+
+\newpage
+
+#### Correlation grid #2
+
+```{r KJ62c1cplot, fig.width=10,fig.height=10}
+### be sure to specify corrplot::corrplot because the namespace may be masked by pls::corrplot
+corrplot::corrplot(
+  correl3,
+  method = "circle",
+  type = "upper",
+  order = "hclust",
+  tl.cex = 0.5,
+  main = paste("\nClustered correlations of reduced fingerprint matrix (ncol=",
+               ncol(correl3),") where abs(corr) < ", round(cutoff,4))
+)
+```
+
+The above correlation grid does not display as many clusters indicating variables that are highly correlated with each other, which should remove the multicollinearlty problem.
+
+
+\newpage
+
+### (c) Split, pre-process, and tune
+
+#### pre-process the data 
+
+
+The values for permeability are all positive.
+
+In order to ensure that we do not obtain any negative predictions,   
+##### we will fit $\log(permeability)$ and then exponentiate the results of the fitting.
+
+
+```{r KJ62c2}
+ 
+```
+
+#### Now split the reduced data into a training and a test set, 
+
+```{r KJ62c3}
+set.seed(12345)
+trainRow <- createDataPartition(log_permeability, p=0.8, list=FALSE)
+ctrl <- trainControl(method = "cv")
+
+
+fingerprints.train     <- fingerprints_filtered3[trainRow, ]
+permeability.train     <- permeability[trainRow, ]
+log_permeability.train <- log_permeability[trainRow, ]
+fingerprints.test      <- fingerprints_filtered3[-trainRow, ]
+permeability.test      <- permeability[-trainRow, ]
+log_permeability.test  <- log_permeability[-trainRow, ]
+```
+
+
+
+
+\newpage
+
+#### and tune a PLS model. 
+
+```{r KJ62c4}
+ 
+#library(pls)
+## Run PLS 
+set.seed(100)
+plsTune <- train(x = fingerprints.train, 
+                 y = log_permeability.train,
+                 method = "pls",
+                 metric='Rsquared',
+                 tuneLength = 25,
+                 tuneGrid = expand.grid(ncomp = 1:25),
+                 trControl = ctrl,
+                 preProcess=c('center', 'scale')
+                 )
+plsTune
+
+plsResamples <- plsTune$results
+plsResamples$Model <- "PLS"
+
+xyplot(Rsquared ~ ncomp,
+       data = plsResamples,
+       #aspect = 1,
+       xlab = "# Components",
+       ylab = "R^2 (Cross-Validation)",
+       auto.key = list(),
+       groups = Model,
+       type = c("o", "g"),
+       main="Plot of Rsquared by number of variables")
+
+
+#### Importance plot of predictor variables
+plsImp <- varImp(plsTune, scale = FALSE)
+plot(plsImp, top = 25, 
+     scales = list(y = list(cex = .75)),
+     main="Importance of predictor variables")
+
+```
+
+#### How many latent variables are optimal and what is the corresponding resampled estimate of R2?
+
+```{r KJ62c5}
+
+plsTune$bestTune$ncomp
+
+plsTune$results[plsTune$bestTune$ncomp,]
+
+```
+
+The optimal number of latent variables is `r plsTune$bestTune$ncomp` and the corresponding 
+resampled estimate of $R^2$ is `r plsTune$results[plsTune$bestTune$ncomp,]$Rsquared` .
+
+
+
+\newpage
+### (d) Predict the response for the test set. 
+
+#### Predict the log(permeability)
+```{r KJ62dLOG}
+
+#### We have predicted the log of permeability
+log_pls_test_y_hat <- predict(object = plsTune, newdata = fingerprints.test   ) 
+log_pls_test_stats <- postResample(pred = log_pls_test_y_hat, obs = log_permeability.test)
+(log_pls_test_stats <- rbind(log_pls_test_stats)) %>%
+  kable() %>% 
+  kable_styling(c("bordered","striped"),full_width = F)
+
+
+# Plot actual and predicted permeability by index
+plot(log_pls_test_y_hat,col="red", 
+     ylab="actual(blue) vs. predicted (red)",
+     main="log(permeability): actual(blue) vs. predicted (red)")
+points(log_permeability.test,col="blue")
+
+
+#### Plot of log(observed) vs. log(predicted)
+main=paste("Plot of log(permeability)",
+            "testdata vs. predicted")
+plot(log_permeability.test~log_pls_test_y_hat,
+     main=main,col="blue",
+     ylab="log(permeability): observed testdata",
+     xlab="log(permeability): predicted")
+abline(a=0,b=1,col="red")
+```
+
+
+#### Because we predicted the **log** of the permeability, **exponentiate** to get the genuine value
+```{r KJ62dEXP}
+pls_test_y_hat <- exp(log_pls_test_y_hat)
+pls_test_stats <- postResample(pred = pls_test_y_hat, obs = permeability.test)
+(pls_test_stats <- rbind(pls_test_stats)) %>%
+  kable() %>% 
+  kable_styling(c("bordered","striped"),full_width = F)
+
+
+# Plot actual and predicted permeability by index
+plot(pls_test_y_hat,col="red", 
+     ylab="actual(blue) vs. predicted (red)",
+     main="Permeability: actual(blue) vs. predicted (red)")
+points(permeability.test,col="blue")
+
+
+
+main=paste("Plot of permeability)","\n",
+            "testdata vs. predicted")
+plot(permeability.test~ pls_test_y_hat,
+     main=main,col="blue",
+     ylab="permeability: observed testdata",
+     xlab="permeability: predicted")
+abline(a=0,b=1)
+
+```
+
+#### What is the test set estimate of R2?
+
+The test set estimate of $R^2$ is `r postResample(pred = pls_test_y_hat, obs = permeability.test)["Rsquared"]` .
+
+\newpage   
+#### Plot results in log space
+
+   
+```{r xyplot-logs}
+par(mfrow=c(1,2))
+xyplot(log_permeability.train ~ predict(plsTune),
+## plot the points (type = 'p') and a background grid ('g')
+type = c("p", "g"),
+xlab = "log(Predicted)", ylab = "log(Observed)", main="permeability: log(TRAINING)",
+panel = function(x,y, ...){
+  panel.xyplot(x,y, ...)
+  panel.abline(a=0,b=1,col="red")
+  }
+)
+
+xyplot(log_permeability.test ~ predict(plsTune,newdata = fingerprints.test),
+## plot the points (type = 'p') and a background grid ('g')
+type = c("p", "g"),
+xlab = "log(Predicted)", ylab = "log(Observed)", main="permeability: log(TEST)",
+panel = function(x,y, ...){
+  panel.xyplot(x,y, ...)
+  panel.abline(a=0,b=1,col="red")
+  }
+)
+```
+
+
+\newpage   
+#### Plot results transformed back from log space
+
+   
+   
+```{r xyplot-exp}
+par(mfrow=c(1,2))
+xyplot(permeability.train ~ exp(predict(plsTune)),
+## plot the points (type = 'p') and a background grid ('g')
+type = c("p", "g"),
+xlab = "Predicted", ylab = "Observed", main="permeability: TRAINING",
+panel = function(x,y, ...){
+  panel.xyplot(x,y, ...)
+  panel.abline(a=0,b=1,col="red")
+  }
+)
+
+xyplot(permeability.test ~ exp(predict(plsTune,newdata = fingerprints.test)),
+## plot the points (type = 'p') and a background grid ('g')
+type = c("p", "g"),
+xlab = "Predicted", ylab = "Observed", main="permeability: TEST",
+panel = function(x,y, ...){
+  panel.xyplot(x,y, ...)
+  panel.abline(a=0,b=1,col="red")
+  }
+)
+```
+
+
+#### Plot the residuals
+```{r residuals}
+xyplot(resid(plsTune) ~ predict(plsTune),
+type = c("p", "g"),
+xlab = "Predicted", ylab = "Residuals")
+```
+
+\newpage
+### (e) Try building other models discussed in this chapter. 
+#### Principal Components Regression
+
+```{r KJ62e}
+set.seed(100)
+pcrTune <- train(x = fingerprints.train, 
+                 y = log_permeability.train,
+                 method = "pcr",
+                 metric='Rsquared',
+                 tuneLength = 30,
+                 tuneGrid = expand.grid(ncomp = 1:30),
+                 trControl = ctrl,
+                 preProcess=c('center', 'scale')
+                 )
+pcrTune
+pcrTune$bestTune$ncomp
+pcrTune$results[pcrTune$bestTune$ncomp,]
+log_pcr_test_y_hat <- predict(object = pcrTune, newdata = fingerprints.test   ) 
+log_pcr_test_stats <- postResample(pred = log_pcr_test_y_hat, obs = log_permeability.test)
+(log_pcr_test_stats <- rbind(log_pcr_test_stats))
+
+pcr_test_y_hat <- exp(log_pcr_test_y_hat)
+pcr_test_stats <- postResample(pred = pcr_test_y_hat, obs = permeability.test)
+(pcr_test_stats <- rbind(pcr_test_stats)) %>%
+  kable() %>% 
+  kable_styling(c("bordered","striped"),full_width = F)
+```
+
+\newpage
+#### Ridge Regression
+```{r ridge}
+ridgeGrid <- data.frame(.lambda = seq(0, 1, length = 101))
+set.seed(100)
+ridgeTune <- train(x = fingerprints.train,                      
+                   y = log_permeability.train,                     
+                   method = "ridge",                     
+                   metric='Rsquared',
+## Fit the model over many penalty values
+                   tuneGrid = ridgeGrid,
+                   trControl = ctrl,
+## put the predictors on the same scale
+                   preProc = c("center", "scale"))
+ridgeTune
+ridgeTune$bestTune$lambda
+ridgeTune$results[rownames(ridgeTune$bestTune),]
+log_ridge_test_y_hat <- predict(object = ridgeTune, newdata = fingerprints.test   ) 
+log_ridge_test_stats <- postResample(pred = log_ridge_test_y_hat, obs = log_permeability.test)
+(log_ridge_test_stats <- rbind(log_ridge_test_stats))
+
+ridge_test_y_hat <- exp(log_ridge_test_y_hat)
+ridge_test_stats <- postResample(pred = ridge_test_y_hat, obs = permeability.test)
+(ridge_test_stats <- rbind(ridge_test_stats)) %>%
+  kable() %>% 
+  kable_styling(c("bordered","striped"),full_width = F)
+```
+
+\newpage
+#### Elasticnet
+
+```{r elasticnet}
+enetGrid = expand.grid(.lambda  =seq(0,    1,   length=21), 
+                       .fraction=seq(0.05, 1.0, length=20))
+set.seed(100)
+enetTune <- train(x = fingerprints.train,                      
+                  y = log_permeability.train, 
+                  method = "enet",
+                  metric='Rsquared',
+                  tuneGrid = enetGrid,
+                  trControl = ctrl,
+                  preProc = c("center", "scale")
+                  )
+# enetTune
+## printing suppressed because of length of results:
+
+## Rsquared was used to select the optimal model using the largest value.
+## The final values used for the model were fraction = 0.5 and lambda = 0.45.
+
+enetTune$bestTune 
+enetTune$results[rownames(enetTune$bestTune),]
+log_enet_test_y_hat <- predict(object = enetTune, newdata = fingerprints.test   ) 
+log_enet_test_stats <- postResample(pred = log_enet_test_y_hat, obs = log_permeability.test)
+(log_enet_test_stats <- rbind(log_enet_test_stats))
+
+enet_test_y_hat <- exp(log_enet_test_y_hat)
+enet_test_stats <- postResample(pred = enet_test_y_hat, obs = permeability.test)
+(enet_test_stats <- rbind(enet_test_stats)) %>%
+  kable() %>% 
+  kable_styling(c("bordered","striped"),full_width = F)
+
+```
+
+```{r enetplot}
+plot(enetTune, main="ElasticNet", sub="Maximum R^2 occurs at lambda=0.45 and fraction=0.50")
+```
+
+
+\newpage
+#### Do any have better predictive performance?
+
+```{r KJ62eSummary}
+rbind(pls_test_stats,pcr_test_stats,ridge_test_stats,enet_test_stats ) %>%
+  kable(caption = "Summary of results") %>% 
+  kable_styling(c("bordered","striped"),full_width = F)
+```
+
+
+**Ridge** has a better $R^2$, but this result corresponds to a worse RMSE and MAE.    
+Using the criterion of maximizing $R^2$, the associated RMSE and MAE are better on **PCR** than PLS.
+
+
+
+\newpage
+### (f) Would you recommend any of your models to replace the permeability laboratory experiment?
+```{r KJ62f}
+ 
+```
+
+No, I don't believe that the predictive power from these models are strong enough to replace the laboratory experiment.
+
+***
+
+\newpage
+
+\newpage
+
+
+## 6.3. A chemical manufacturing process for a pharmaceutical product 
+#### was discussed in Sect. 1.4. 
+#### In this problem, the objective is to understand the relationship between 
+
+* **biological** measurements of the raw materials (predictors), 
+* measurements of the **manufacturing process** (predictors), and 
+* the response of **product yield**. 
+
+#### **Biological predictors** cannot be changed but can be used to assess the quality of the raw material before processing. 
+#### On the other hand, **manufacturing process predictors** can be changed in the manufacturing process.
+
+#### Improving product yield by 1% will boost revenue by approximately one hundred thousand dollars per batch:
+
+
+### (a) Start R and use these commands to load the data:
+
+```{r KJ63a}
+#library(AppliedPredictiveModeling)
+#data(chemicalManufacturing)                  ## The data set has been renamed
+data(ChemicalManufacturingProcess)
+# save a copy
+origChemicalManufacturingProcess <- ChemicalManufacturingProcess
+# Examine the data
+# summary with standard deviation and skewness:
+#library(moments)
+### Because all the data is numeric, we can change from data.frame to matrix
+m_ChemicalManufacturingProcess <- as.matrix(ChemicalManufacturingProcess)
+rbind(summary(m_ChemicalManufacturingProcess),
+      paste0("StDev  :",round(apply(X = m_ChemicalManufacturingProcess, MARGIN = 2, FUN = sd,na.rm=T),2),"  "), 
+      paste0("Skew   :",round(skewness(m_ChemicalManufacturingProcess,na.rm=T),2),"  ")) %>% 
+      as.table()
+
+
+
+# check rows for NAs
+nTotalRows <- nrow(m_ChemicalManufacturingProcess)
+nCompleteRows <- sum(completeRows <- complete.cases(m_ChemicalManufacturingProcess))
+nRowsWithNA <- nTotalRows - nCompleteRows
+print(paste("There are ", nCompleteRows, "Complete Rows and ", nRowsWithNA, "Rows with some NA value, out of ",nTotalRows, "Total Rows"  ))
+# check columns for NAs
+nTotalCols <- ncol(m_ChemicalManufacturingProcess)
+colsWithNA <- apply(m_ChemicalManufacturingProcess,2,anyNA)
+nColsWithNA <- sum(colsWithNA)
+nCompleteCols <- nTotalCols - nColsWithNA
+print(paste("There are ", nCompleteCols, "Complete Columns and ", nColsWithNA, "Columns with some NA value, out of ",nTotalCols, "Total Columns"  ))
+
+```
+
+The matrix `ChemicalManufacturingProcess` contains the 57 predictors 
+
+* 12 describing the input biological material and 
+* 45 describing the process predictors)
+for the 176 manufacturing runs. 
+
+* `yield` contains the percent yield for each run.
+
+\newpage
+### (b) Imputation
+#### A small percentage of cells in the predictor set contain missing values. 
+##### Visualize which columns have missing data using VIM::aggr :
+
+```{r KJ63bVIM, fig.width=10, fig.height=6}
+#library(VIM)
+ggr_plot <- aggr(
+  origChemicalManufacturingProcess,
+  col = c('navyblue', 'red'),
+  numbers = TRUE,
+  sortVars = TRUE,
+  labels = names(origChemicalManufacturingProcess),
+  cex.axis = .4,
+  gap = 0.5,
+  ylab = c("Histogram of missing data", "Pattern")
+)
+```
+
+#### Use an imputation function to fill in these missing values (e.g., see Sect. 3.8).
+##### Use **MICE**: "Multivariate Imputation by Chained Equations" to impute missing values
+````{r KJ63bMICE}
+#library(mice)
+imputeChemicalManufacturingProcess <- mice(
+  m_ChemicalManufacturingProcess,
+  m = 2,
+  maxit = 10,
+  meth = 'pmm',
+  seed = 500,
+  print = F
+)
+ChemicalManufacturingProcess <- complete(imputeChemicalManufacturingProcess)
+m_ChemicalManufacturingProcess <- as.matrix(ChemicalManufacturingProcess)
+
+### Any NA values?
+anyNA(ChemicalManufacturingProcess)
+anyNA(m_ChemicalManufacturingProcess)
+
+
+##ggpairs(ChemicalManufacturingProcess[,1:10])
+```
+
+#### FeaturePlot Loop
+```{r featureloop, fig.width=10, fig.height=2, warning=F}
+for (low in seq(2,54,4)) {
+  #print(paste("Range = ", low, " to ", low+3))
+print(featurePlot(
+  x = m_ChemicalManufacturingProcess[, low:(low+3)],
+  y = m_ChemicalManufacturingProcess[, 1],
+  between = list(x = 1, y = 1),
+  type = c("g", "p", "smooth")
+))  
+}
+```
+
+
+
+
+
+
+```{r KJ63bMICEstats}
+### Above returns a data.frame
+### Because all the data is numeric, we can change from data.frame to matrix
+m_ChemicalManufacturingProcess <- as.matrix(ChemicalManufacturingProcess)
+# Any NA values?
+anyNA(m_ChemicalManufacturingProcess)
+
+#### Repeat summary on imputed matrix
+rbind(summary(m_ChemicalManufacturingProcess),
+      paste0("StDev  :",round(apply(X = m_ChemicalManufacturingProcess, MARGIN = 2, FUN = sd),2),"  "), 
+      paste0("Skew   :",round(skewness(m_ChemicalManufacturingProcess),2),"  ")) %>% 
+      as.table()
+```
+
+
+#### Separate out the target variable ("Yield") from the predictors
+```{r KJ63bSeparate}
+yield = ChemicalManufacturingProcess[,1]
+predictors = ChemicalManufacturingProcess[,2:nTotalCols]
+
+#ggpairs(predictors)
+
+#### some code expects yield and predictors to be matrix, not array or dataframe
+#### All values are numeric, so we can do this
+m_yield <- as.matrix(yield)
+m_predictors <- as.matrix(predictors)
+
+nSamples = dim(m_predictors)[1]
+nFeatures = dim(m_predictors)[2]
+
+print(paste("Total number of cases is",nSamples,"; total number of features is", nFeatures))
+```
+
+
+
+#### Histogram of yield, with normal density curve(red)
+```{r KJ63bHistogram}
+# histogram of yield
+hist(m_yield,prob=T,breaks=20,col="lightgreen")
+curve(dnorm(x, mean = mean(m_yield), sd = sd(m_yield)), col="red", add=TRUE)
+```
+
+
+#### Tests for normality
+```{r KJ63bNormtests}
+#library(olsrr)
+ols_test_normality(m_yield)
+```
+
+Because 3 of 4 normality tests are passed, there will be no need to transform the yield variable.
+
+
+#### scatterplot of yield
+```{r KJ63bScatter}
+mainlabel=paste("Yield data (N =",nSamples,")")
+plot(m_yield,main=mainlabel,col="blue")
+```
+
+
+
+
+\newpage
+#### Check for high correlations between columns in the ChemicalManufacturingProcess data set:
+
+#### Correlation grid #1
+
+```{r KJ63bCorrPlot1, fig.width=10,fig.height=10}
+### be sure to specify corrplot::corrplot because the namespace may be masked by pls::corrplot
+#library(corrplot)
+correl5 <- cor(m_ChemicalManufacturingProcess) 
+
+# determinant is (barely) non-zero
+print(paste("Determinant: ", det(correl5)))
+
+# some columns are very similar to other columns.
+maxcor5 <- round(max(correl5-diag(1,ncol(correl5),ncol(correl5))),5)
+mincor5 <- round(min(correl5-diag(1,ncol(correl5),ncol(correl5))),5)
+print(paste("Range of off-diag correlations: ", 
+            paste0("[",mincor5,",",maxcor5,"]"), "on",ncol(correl5),"columns"))
+
+
+corrplot::corrplot(
+  correl5,
+  method = "circle",
+  type = "upper",
+  order = "hclust",
+  tl.cex = 0.4,
+  main = paste("\nClustered correlations of ChemicalManufacturingProcess (ncol=",
+               ncol(correl5),")")
+)
+```
+
+
+
+
+#### Select high-correlation columns to be dropped
+```{r KJ63bHighCorr}
+correl6 <- cor(m_predictors) 
+
+# determinant is (barely) nonzero 
+print(paste("Determinant: ", det(correl6)))
+```
+
+#### Range of correlations
+```{r KJ63bHighCorr2}
+# some columns are very similar to other columns.
+maxcor6 <- round(max(correl6-diag(1,ncol(correl6),ncol(correl6))),5)
+mincor6 <- round(min(correl6-diag(1,ncol(correl6),ncol(correl6))),5)
+print(paste("Range of off-diag predictor correlations: ", 
+            paste0("[",mincor6,",",maxcor6,"]"), "on",ncol(correl6),"columns"))
+```
+
+#### eliminate predictor columns which are highly correlated to other predictor columns
+```{r KJ63bHighCorr3}
+cutoff = 0.9
+highcorrcols <- findCorrelation(correl6,cutoff = cutoff)
+num_highcorrcols <- length(highcorrcols)
+print(paste("Quantity of columns which have correlation > ", cutoff, ":", 
+            num_highcorrcols, "out of",ncol(correl6)))
+```
+
+#### Names of columns to be dropped:
+
+```{r KJ63bHighCorr4}
+colnames(m_predictors)[highcorrcols] %>% sort()  %>% 
+  kable(caption = "Columns to be dropped") %>% 
+  kable_styling(c("bordered","striped"),full_width = F)
+```
+
+#### Drop above predictors
+```{r KJ63bHighCorr5}
+# drop columns which have high correlation to some other column
+m_predictors2 <- m_predictors[,-highcorrcols]
+dim(m_predictors2)
+print(paste("Remaining number of predictor columns: ", ncol(m_predictors2)))
+```
+
+
+#### Correlation Plot of reduced predictors
+```{r KJ63bCorrPlot2, fig.width=10,fig.height=10}
+
+correl7 <- cor(m_predictors2) 
+# determinant is (barely) nonzero
+print(paste("Determinant: ", det(correl7)))
+
+# some columns are very similar to other columns.
+maxcor7 <- round(max(correl7-diag(1,ncol(correl7),ncol(correl7))),5)
+mincor7 <- round(min(correl7-diag(1,ncol(correl7),ncol(correl7))),5)
+print(paste("Range of off-diag correlations: ", 
+            paste0("[",mincor7,",",maxcor7,"]"), "on",ncol(correl7),"columns"))
+
+
+corrplot::corrplot(
+  correl7,
+  method = "circle",
+  type = "upper",
+  order = "hclust",
+  tl.cex = 0.4,
+  main = paste("\nClustered correlations of reduced predictors (ncol=",
+               ncol(correl7),")")
+)
+```
+
+
+
+#### Remove Near-Zero Variance predictors
+
+```{r KJ63bNearZeroVar}
+
+predictors_nearZeroVarCols <- nearZeroVar(m_predictors2)
+predictors_nTotalCols <- ncol(m_predictors2)
+predictors_nDropCols <- length(predictors_nTotalCols)
+
+print(paste("Number of NearZeroVar columns to be dropped:", 
+            predictors_nDropCols, "out of", predictors_nTotalCols))
+colnames(m_predictors2)[predictors_nearZeroVarCols]  %>% 
+  kable(caption = "Columns to be dropped") %>% 
+  kable_styling(c("bordered","striped"),full_width = F)
+
+m_predictors3 <- m_predictors2[,-predictors_nearZeroVarCols]
+predictors_nFiltered <- ncol(m_predictors3)
+dim(m_predictors3)
+
+```
+
+\newpage
+### (c) Split the data 
+#### into a training and a test set, 
+
+```{r KJ63c1}
+set.seed(12345)
+KJ63trainRow <- createDataPartition(m_yield, p=0.8, list=FALSE)
+
+
+KJ63predictors.train     <- m_predictors3[KJ63trainRow, ]
+KJ63yield.train          <- m_yield[KJ63trainRow, ]
+KJ63predictors.test      <- m_predictors3[-KJ63trainRow, ]
+KJ63yield.test           <- m_yield[-KJ63trainRow, ]
+```
+
+
+#### pre-process the data,
+```{r KJ63c2}
+preProc <- preProcess(KJ63predictors.train,
+                      method=c("YeoJohnson","center","scale","knnImpute"))
+preProcKJ63predictors.train    <- predict(preProc,KJ63predictors.train)
+preProcKJ63predictors.test     <- predict(preProc,KJ63predictors.test)
+
+```
+
+
+#### tune a model of your choice from this chapter. 
+```{r KJ63c3}
+set.seed(517)
+##ctrl <- trainControl(method = "cv")
+KJ63ctrl <- trainControl(method = "boot", number = 25)
+plsTune <- train(x          = preProcKJ63predictors.train, 
+                 y          = KJ63yield.train,
+                 method     = "pls",
+                 metric     = 'Rsquared',
+                 tuneLength = 15,
+                 #preProcess = c("YeoJohnson","center","scale"),
+                 trControl  = KJ63ctrl)
+plsTune
+
+plsResamples <- plsTune$results
+plsResamples$Model <- "PLS"
+
+xyplot(Rsquared ~ ncomp,
+       data = plsResamples,
+       #aspect = 1,
+       xlab = "# Components",
+       ylab = "R^2 (Cross-Validation)",
+       auto.key = list(),
+       groups = Model,
+       type = c("o", "g"),
+       main="Plot of Rsquared by number of components")
+
+
+
+
+
+```
+
+
+
+#### What is the optimal value of the performance metric?
+
+
+```{r KJ63c4}
+
+plsTune$bestTune$ncomp
+plsTune$results[rownames(plsTune$bestTune),]
+
+```
+
+The optimal value occurs when the number of components is `r plsTune$bestTune$ncomp`, where $R^2$ = `r  plsTune$results[rownames(plsTune$bestTune),]$Rsquared` .
+
+
+
+
+\newpage
+### (d) Predict the response for the test set.
+```{r KJ63d1}
+pls_test_predictions <- predict(object = plsTune, newdata = preProcKJ63predictors.test    ) 
+KJ63pls_test_stats <- postResample(pred = pls_test_predictions, obs = KJ63yield.test)
+```
+
+
+#### Plot test data - predicted vs. observed
+```{r KJ63cTESTPLOT1}
+xyplot(KJ63yield.test ~ pls_test_predictions,
+## plot the points (type = 'p') and a background grid ('g')
+  type = c("p", "g"),
+  xlab = "Predicted", 
+  ylab = "Observed", 
+  main="yield: TEST",
+panel = function(x,y, ...){
+  panel.xyplot(x,y, ...)
+  panel.abline(a=0,b=1,col="red")
+  }
+)
+```
+
+
+
+#### What is the value of the performance metric 
+```{r KJ63d2}
+(KJ63pls_test_stats <- rbind(KJ63pls_test_stats)) %>%
+  kable() %>% 
+  kable_styling(c("bordered","striped"),full_width = F)
+
+```
+For the resampled training data, $R^2$ = `r KJ63pls_test_stats[,"Rsquared"]` 
+and RMSE = `r KJ63pls_test_stats[,"RMSE"]`. 
+
+
+#### and how does this compare with the resampled performance metric on the training set?
+```{r KJ63d3}
+pls_train_predictions <- predict(object = plsTune) # , newdata = preProcKJ63predictors.train   ) 
+KJ63pls_train_stats <- postResample(pred = pls_train_predictions, obs = KJ63yield.train)
+(KJ63pls_train_stats <- rbind(KJ63pls_train_stats)) %>%
+  kable() %>% 
+  kable_styling(c("bordered","striped"),full_width = F)
+```
+
+For the resampled training data, $R^2$ = `r KJ63pls_train_stats[,"Rsquared"]` 
+and RMSE = `r KJ63pls_train_stats[,"RMSE"]`.   
+
+These are much better than the results on the test set, which suggests that there may be an overfitting problem,or that this model may not be the best choice.
+
+
+
+#### Plot TRAINING data - predicted vs. observed
+```{r KJ63cTRAINPLOT1}
+
+
+
+
+xyplot(KJ63yield.train ~ pls_train_predictions,
+## plot the points (type = 'p') and a background grid ('g')
+  type = c("p", "g"),
+  xlab = "Predicted", 
+  ylab = "Observed", 
+  main="yield: TRAIN",
+  col="black",
+panel = function(x,y, ...){
+  panel.xyplot(x,y, ...)
+  panel.abline(a=0,b=1,col="red")
+  }
+)
+
+```
+
+\newpage
+
+### (e) Importance
+
+#### Which predictors are most important in the model you have trained? 
+
+```{r KJ63e1}
+plsImp <- varImp(plsTune, scale = FALSE)
+(plsImp)
+plot(plsImp, top = 20, 
+     scales = list(y = list(cex = .75)),
+     main="Importance of predictor variables for ChemicalManufacturingProcess")
+```
+
+#### Do either the biological or process predictors dominate the list?
+
+The Manufacturing Process predictors dominate the list.
+
+```{r KJ63e2}
+
+
+```
+\newpage
+### (f) Explore the relationships 
+#### between each of the top predictors and the response.
+
+
+```{r KJ63f1, fig.width=6,fig.height=6, warning=F}
+#### Top ten predictors (by "importance")
+topnames <- rownames(plsImp[["importance"]])[order(plsImp[["importance"]][["Overall"]],
+                                                   decreasing = T)][1:10]
+
+topcor=c()
+#### Loop through top ten predictors
+for (i in topnames) { 
+  #print(cor(yield,predictors[i]))
+  topcor[i]=cor(yield,predictors[i])
+  print(featurePlot(
+    x = m_ChemicalManufacturingProcess[, i],
+    y = m_ChemicalManufacturingProcess[, 1],
+    between = list(x = 1, y = 1),
+    type = c("g", "p", "smooth"),
+    main=paste0("cor(Yield,",i,")=",round(topcor[i],5)),
+    labels=c(i,"Yield")
+  ))
+}
+
+
+topcor <- as.matrix(topcor)
+colnames(topcor) <- "Correlation with yield"
+
+
+topcor %>% 
+  kable(caption = "Correlation between yield and most important predictors") %>% 
+  kable_styling(c("bordered","striped"),full_width = F)
+
+
+
+```
+
+\newpage
+#### How could this information be helpful in improving yield in future runs of the manufacturing process?
+
+
+For the `ManufacturingProcess` predictors which display **high positive correlation** with `Yield`, such as 32, 09, and 06, it would be benefical to **increase** usage of such processes, as doing so should cause the yield to increase.    
+
+On the other hand, for those `ManufacturingProcess` predictors which display **negative correlation** with `Yield`, such as 13, 17, and 36, it would be beneficial, if possible, to curtail or otherwise **decrease** usage of such processes, as they cause the yield to decrease, so omitting or less reliance on such processes may cause an overall increase in the yield.
+
+
